@@ -1,15 +1,26 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from scipy.stats import pearsonr, spearmanr
 from PIL import Image
 import glob
 import numpy as np
 import torch.optim as optim
 import re
 import pandas
+import os
+
 
 MX=127
 MN=0.04
+DETDIST=200
+WAVELEN=.977794
+PIXSIZE=.6
+IMG_SH=546,518
+Y,X = np.indices(IMG_SH)
+centX, centY = np.load("centerA.npy")
+Rad = np.sqrt((Y-centY)**2 + (X-centX)**2)
+QMAP = np.sin(0.5*np.arctan(Rad*PIXSIZE/DETDIST))*2/WAVELEN
 
 
 class Net(nn.Module):
@@ -18,7 +29,7 @@ class Net(nn.Module):
         super(Net, self).__init__()
         # 1 input image channel, 6 output channels, 5x5 square convolution
         self.dev = "cuda:%d" % device_id
-        self.conv1 = nn.Conv2d(1, 6, 3, device=self.dev, padding=2)
+        self.conv1 = nn.Conv2d(2, 6, 3, device=self.dev, padding=2)
         self.conv2 = nn.Conv2d(6, 16, 3, device=self.dev, padding=2)
         self.conv3 = nn.Conv2d(16, 32, 3, device=self.dev, padding=2)
         #self.conv4 = nn.Conv2d(32, 64, 3, device=self.dev, padding=2)
@@ -26,10 +37,11 @@ class Net(nn.Module):
         #self.conv6 = nn.Conv2d(128, 256, 3, device=self.dev, padding=2)
         # an affine operation: y = Wx + b
         #self.fc1 = nn.Linear(16 * 128 * 128, 3000, device=self.dev)  # 5*5 from image dimension
-        self.fc1 = nn.Linear(32*65*65, 4000, device=self.dev)  # 5*5 from image dimension
+        self.fc1 = nn.Linear(32*65*66, 4000, device=self.dev)  # 5*5 from image dimension
         self.fc2 = nn.Linear(4000, 1000, device=self.dev)
         self.fc3 = nn.Linear(1000, 1, device=self.dev)
 
+    @profile
     def forward(self, x):
         # Max pooling over a (2, 2) window
         x = F.max_pool2d(F.relu(self.conv1(x)), (2, 2))
@@ -68,6 +80,7 @@ class Images:
         return int(num)
      
 
+    @profile
     def __getitem__(self, i):
         if isinstance(i, slice):
             imgs = []
@@ -88,8 +101,20 @@ class Images:
             num = self.nums[i] 
             label = self.prop.query("num==%d" % num)
             img = np.reshape(img.getdata(), self.img_sh).astype(np.float32)
-            return img[None,:512,:512], label
+            mask = self.load_mask(self.fnames[i])
+            imgQ = np.zeros_like(img)
+            imgQ[mask] = QMAP[mask]
+            combined_imgs = np.array([img, imgQ])[:512,:512]
+            return combined_imgs, label 
 
+    @staticmethod
+    def load_mask(f):
+        maskdir = os.path.join( os.path.dirname(f), "masks")
+        maskname = os.path.join(maskdir, os.path.basename(f).replace(".png", ".npy"))
+        mask = np.load(maskname)
+        return mask
+
+    @profile
     def tensorload(self, dev, batchsize=4, start=0,  Nload=None, norm=False):
         if Nload is None:
             Nload = len(self.fnames) - start
@@ -110,15 +135,16 @@ class Images:
 
 
 
-if __name__=="__main__":
 
+@profile
+def main():
     nety = Net()
     imgs = Images()
     criterion = nn.MSELoss()
     optimizer = optim.SGD(nety.parameters(), lr=0.001, momentum=0.9)
 
     acc = 0
-    for epoch in range(100):
+    for epoch in range(1):
 
         train_tens = imgs.tensorload(nety.dev, start=2000, batchsize=64)
 
@@ -142,9 +168,14 @@ if __name__=="__main__":
         total = 0
         good_labels = []
         print("Computing accuracy!")
+        all_lab = []
+        all_pred = []
         for data,labels in test_tens:
             pred = nety(data)
-            loss = criterion(pred,labels)
+            
+            all_lab += [l.item() for l in labels]
+            all_pred += [p.item() for p in pred]
+
             errors = (pred-labels).abs()/labels
             is_accurate = errors < 0.1
 
@@ -154,8 +185,21 @@ if __name__=="__main__":
             total += len(labels)
             
         acc = len(good_labels) / total*100.
-        print("Accuracy at Ep%d: %.2f%%, Ave/Stdev accurate labels=%.3f +- %.3f Angstrom" % (epoch, acc, np.mean(good_labels), np.std(good_labels)))
+        print("Accuracy at Ep%d: %.2f%%, Ave/Stdev accurate labels=%.3f +- %.3f Angstrom" \
+            % (epoch, acc, np.mean(good_labels), np.std(good_labels)))
 
+        # compute correlation coefficients
+        all_lab = 1/np.array(all_lab) # convert to resolutions
+        all_pred = 1/np.array(all_pred) # convert to resolutions
+        pear = pearsonr(all_lab, all_pred)[0]
+        spear = spearmanr(all_lab, all_pred)[0]
+
+        print("predicted-VS-truth: PearsonR=%.3f%%, SpearmanR=%.3f%%" \
+            % (pear*100, spear*100))
+
+
+if __name__=="__main__":
+    main()
 
 #   BINARY IMAGE CLASSIFIER -> get in the ballpark
 #   Shell Image regressions -> fine tune using resolution shell
