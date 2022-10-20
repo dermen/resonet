@@ -6,6 +6,7 @@ from PIL import Image
 import glob
 import numpy as np
 import torch.optim as optim
+import h5py
 import re
 import pandas
 import os
@@ -18,7 +19,7 @@ WAVELEN=.977794
 PIXSIZE=.6
 IMG_SH=546,518
 Y,X = np.indices(IMG_SH)
-centX, centY = np.load("centerA.npy")
+centX, centY = -0.22111771, -0.77670382 #np.load("centerA.npy")
 Rad = np.sqrt((Y-centY)**2 + (X-centX)**2)
 QMAP = np.sin(0.5*np.arctan(Rad*PIXSIZE/DETDIST))*2/WAVELEN
 
@@ -37,11 +38,10 @@ class Net(nn.Module):
         #self.conv6 = nn.Conv2d(128, 256, 3, device=self.dev, padding=2)
         # an affine operation: y = Wx + b
         #self.fc1 = nn.Linear(16 * 128 * 128, 3000, device=self.dev)  # 5*5 from image dimension
-        self.fc1 = nn.Linear(32*65*66, 4000, device=self.dev)  # 5*5 from image dimension
+        self.fc1 = nn.Linear(32*65*65, 4000, device=self.dev)  # 5*5 from image dimension
         self.fc2 = nn.Linear(4000, 1000, device=self.dev)
         self.fc3 = nn.Linear(1000, 1, device=self.dev)
 
-    @profile
     def forward(self, x):
         # Max pooling over a (2, 2) window
         x = F.max_pool2d(F.relu(self.conv1(x)), (2, 2))
@@ -73,6 +73,10 @@ class Images:
             names=["num", "reso", "mos", "B", "icy1", "icy2", "cell1", \
                     "cell2", "cell3", "SGnum", "pdbid", "stolid"])
 
+    @property
+    def total(self):
+        return len(self.fnames)
+
     @staticmethod
     def get_num(f):
         s = re.search("sim_[0-9]{5}", f)
@@ -80,7 +84,6 @@ class Images:
         return int(num)
      
 
-    @profile
     def __getitem__(self, i):
         if isinstance(i, slice):
             imgs = []
@@ -95,7 +98,10 @@ class Images:
                 img, label = self[idx]
                 imgs.append(img)
                 labels.append(label)
-            return np.array(imgs), pandas.concat(labels).reset_index(drop=True)
+
+            labels = pandas.concat(labels).reset_index(drop=True)
+            labels = 1/labels.reso.values.astype(np.float32)[:,None]
+            return np.array(imgs), labels
         else:
             img = Image.open(self.fnames[i])
             num = self.nums[i] 
@@ -104,7 +110,7 @@ class Images:
             mask = self.load_mask(self.fnames[i])
             imgQ = np.zeros_like(img)
             imgQ[mask] = QMAP[mask]
-            combined_imgs = np.array([img, imgQ])[:512,:512]
+            combined_imgs = np.array([img, imgQ])[:,:512,:512]
             return combined_imgs, label 
 
     @staticmethod
@@ -114,39 +120,58 @@ class Images:
         mask = np.load(maskname)
         return mask
 
-    @profile
-    def tensorload(self, dev, batchsize=4, start=0,  Nload=None, norm=False):
-        if Nload is None:
-            Nload = len(self.fnames) - start
 
-        stop = start + Nload
-        assert start < stop <= len(self.fnames)
+class H5Images:
+    def __init__(self, h5name):
+        self.h5 = h5py.File(h5name, "r")
+        self.images = self.h5["images"]
+        self.labels = self.h5["labels"]
 
-        while start < stop:
-            imgs, labels = self[start:start+batchsize]
-            if norm:
-                imgs /= MX
-                imgs -= MN
-            imgs = torch.tensor(imgs).to(dev)
-            labels = 1/labels.reso.values.astype(np.float32)
-            labels = torch.tensor(labels[:,None]).to(dev)
-            start += batchsize
-            yield imgs, labels
+    @property
+    def total(self):
+        return self.images.shape[0]
+
+    def __getitem__(self, i):
+        if isinstance(i, slice):
+            return self.images[i], self.labels[i]
+        else:
+            return self.images[i:i+1], self.labels[i:i+1]
 
 
 
+def tensorload(images, dev, batchsize=4, start=0,  Nload=None, norm=False):
+    """images is a specialized class with a `total` property, and
+    a specialized getitem method (e.g. Images defined above)
+    """
+    if Nload is None:
+        Nload = images.total - start
 
-@profile
+    stop = start + Nload
+    assert start < stop <= images.total
+
+    while start < stop:
+        imgs, labels = images[start:start+batchsize]
+        if norm:
+            imgs /= MX
+            imgs -= MN
+        imgs = torch.tensor(imgs).to(dev)
+        labels = torch.tensor(labels).to(dev)
+        start += batchsize
+        yield imgs, labels
+
+
+
 def main():
     nety = Net()
-    imgs = Images()
+    #imgs = Images()
+    imgs = H5Images("trainimages.h5")
     criterion = nn.MSELoss()
     optimizer = optim.SGD(nety.parameters(), lr=0.001, momentum=0.9)
 
     acc = 0
-    for epoch in range(1):
+    for epoch in range(100):
 
-        train_tens = imgs.tensorload(nety.dev, start=2000, batchsize=64)
+        train_tens = tensorload(imgs, nety.dev, start=2000, batchsize=64)
 
         losses = []
         for i, (data, labels) in enumerate(train_tens):
@@ -159,11 +184,11 @@ def main():
             optimizer.step()
             losses.append(loss.item())
             if i % 10 == 0 and len(losses)> 1:  
-                print("Ep:%d, batch:%d, loss:  %.3f (latest acc=%.2f%%)" \
+                print("Ep:%d, batch:%d, loss:  %.5f (latest acc=%.2f%%)" \
                     % (epoch, i, np.mean(losses), acc))
                 losses = []
     
-        test_tens = imgs.tensorload(nety.dev, batchsize=2, start=1000, Nload=1000)
+        test_tens = tensorload(imgs, nety.dev, batchsize=2, start=1000, Nload=1000)
         Ngood = 0
         total = 0
         good_labels = []
