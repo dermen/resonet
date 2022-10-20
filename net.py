@@ -18,18 +18,27 @@ class Net(nn.Module):
         super(Net, self).__init__()
         # 1 input image channel, 6 output channels, 5x5 square convolution
         self.dev = "cuda:%d" % device_id
-        self.conv1 = nn.Conv2d(1, 6, 5, device=self.dev, padding=2)
-        self.conv2 = nn.Conv2d(6, 16, 5, device=self.dev, padding=2)
+        self.conv1 = nn.Conv2d(1, 6, 3, device=self.dev, padding=2)
+        self.conv2 = nn.Conv2d(6, 16, 3, device=self.dev, padding=2)
+        self.conv3 = nn.Conv2d(16, 32, 3, device=self.dev, padding=2)
+        #self.conv4 = nn.Conv2d(32, 64, 3, device=self.dev, padding=2)
+        #self.conv5 = nn.Conv2d(64, 128, 3, device=self.dev, padding=2)
+        #self.conv6 = nn.Conv2d(128, 256, 3, device=self.dev, padding=2)
         # an affine operation: y = Wx + b
-        self.fc1 = nn.Linear(16 * 128 * 128, 3000, device=self.dev)  # 5*5 from image dimension
-        self.fc2 = nn.Linear(3000, 2100, device=self.dev)
-        self.fc3 = nn.Linear(2100, 1, device=self.dev)
+        #self.fc1 = nn.Linear(16 * 128 * 128, 3000, device=self.dev)  # 5*5 from image dimension
+        self.fc1 = nn.Linear(32*65*65, 4000, device=self.dev)  # 5*5 from image dimension
+        self.fc2 = nn.Linear(4000, 1000, device=self.dev)
+        self.fc3 = nn.Linear(1000, 1, device=self.dev)
 
     def forward(self, x):
         # Max pooling over a (2, 2) window
         x = F.max_pool2d(F.relu(self.conv1(x)), (2, 2))
         # If the size is a square, you can specify with a single number
         x = F.max_pool2d(F.relu(self.conv2(x)), 2)
+        x = F.max_pool2d(F.relu(self.conv3(x)), 2)
+        #x = F.max_pool2d(F.relu(self.conv4(x)), 2)
+        #x = F.max_pool2d(F.relu(self.conv5(x)), 2)
+        #x = F.max_pool2d(F.relu(self.conv6(x)), 2)
         x = torch.flatten(x, 1) # flatten all dimensions except the batch dimension
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
@@ -103,7 +112,6 @@ class Images:
 
 if __name__=="__main__":
 
-    max_val = 128
     nety = Net()
     imgs = Images()
     criterion = nn.MSELoss()
@@ -148,4 +156,7 @@ if __name__=="__main__":
         acc = len(good_labels) / total*100.
         print("Accuracy at Ep%d: %.2f%%, Ave/Stdev accurate labels=%.3f +- %.3f Angstrom" % (epoch, acc, np.mean(good_labels), np.std(good_labels)))
 
+
+#   BINARY IMAGE CLASSIFIER -> get in the ballpark
+#   Shell Image regressions -> fine tune using resolution shell
 
