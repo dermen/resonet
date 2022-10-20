@@ -1,0 +1,8 @@
+spotfinder.threshold.algorithm=dispersion
+spotfinder.threshold.dispersion.gain=1
+spotfinder.threshold.dispersion.global_threshold=10
+spotfinder.threshold.dispersion.kernel_size=[2,2]
+spotfinder.threshold.dispersion.sigma_strong=1.2
+spotfinder.threshold.dispersion.sigma_background=3
+spotfinder.filter.min_spot_size=2
+
