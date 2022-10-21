@@ -1,15 +1,30 @@
+from argparse import ArgumentParser
+
+parser = ArgumentParser()
+parser.add_argument("ep", type=int)
+parser.add_argument("outdir", type=str)
+parser.add_argument("--lr", type=float, default=0.0075)
+parser.add_argument("--plot", action="store_true")
+parser.add_argument("--bs", type=int,default=64)
+parser.add_argument("--loss", type=str, choices=["L1", "L2"], default="L2")
+parser.add_argument("--saveFreq", type=int, default=10)
+parser.add_argument("--archi", type=str, choices=["le", "res"], default="res")
+args = parser.parse_args()
+
+import glob
+import re
+import os
+import sys
+import h5py
+import numpy as np
+import pandas
+from scipy.stats import pearsonr, spearmanr
+from PIL import Image
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from scipy.stats import pearsonr, spearmanr
-from PIL import Image
-import glob
-import numpy as np
 import torch.optim as optim
-import h5py
-import re
-import pandas
-import os
+from torchvision.models import resnet18, resnet50
 
 
 MX=127
@@ -24,36 +39,58 @@ Rad = np.sqrt((Y-centY)**2 + (X-centX)**2)
 QMAP = np.sin(0.5*np.arctan(Rad*PIXSIZE/DETDIST))*2/WAVELEN
 
 
+class RESNET(nn.Module):
+    def __init__(self, device_id=0):
+        super(RESNET, self).__init__()
+        self.dev = "cuda:%d" % device_id
+        self.resnet = resnet18().to(self.dev)
+        self.resnet.conv1 = nn.Conv2d(2, 64, 
+            kernel_size=7, stride=2, padding=3,bias=False, device=self.dev)
+        self.fc1 = nn.Linear(1000,100, device=self.dev)
+        self.fc2 = nn.Linear(100,1, device=self.dev)
+        
+    def forward (self, x):
+        x = self.resnet(x)
+        x = torch.flatten(x, 1)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+
 class Net(nn.Module):
 
     def __init__(self, device_id=0):
         super(Net, self).__init__()
-        # 1 input image channel, 6 output channels, 5x5 square convolution
         self.dev = "cuda:%d" % device_id
-        self.conv1 = nn.Conv2d(2, 6, 3, device=self.dev, padding=2)
-        self.conv2 = nn.Conv2d(6, 16, 3, device=self.dev, padding=2)
-        self.conv3 = nn.Conv2d(16, 32, 3, device=self.dev, padding=2)
-        #self.conv4 = nn.Conv2d(32, 64, 3, device=self.dev, padding=2)
-        #self.conv5 = nn.Conv2d(64, 128, 3, device=self.dev, padding=2)
-        #self.conv6 = nn.Conv2d(128, 256, 3, device=self.dev, padding=2)
-        # an affine operation: y = Wx + b
-        #self.fc1 = nn.Linear(16 * 128 * 128, 3000, device=self.dev)  # 5*5 from image dimension
-        self.fc1 = nn.Linear(32*65*65, 4000, device=self.dev)  # 5*5 from image dimension
-        self.fc2 = nn.Linear(4000, 1000, device=self.dev)
-        self.fc3 = nn.Linear(1000, 1, device=self.dev)
+        self.conv1 = nn.Conv2d(2, 6, 3, device=self.dev)
+        self.conv2 = nn.Conv2d(6, 16, 3, device=self.dev)
+        self.conv2_bn = nn.BatchNorm2d(16, device=self.dev)
+        self.conv3 = nn.Conv2d(16, 32, 3, device=self.dev)
+        self.conv3_bn = nn.BatchNorm2d(32, device=self.dev)
+
+        self.fc1 = nn.Linear(32*62*62, 1000, device=self.dev)
+        self.fc1_bn = nn.BatchNorm1d(1000, device=self.dev)
+        self.fc2 = nn.Linear(1000, 100, device=self.dev)
+        self.fc2_bn = nn.BatchNorm1d(100, device=self.dev)
+        self.fc3 = nn.Linear(100, 1, device=self.dev)
+        self.relu = nn.ReLU()
 
     def forward(self, x):
-        # Max pooling over a (2, 2) window
         x = F.max_pool2d(F.relu(self.conv1(x)), (2, 2))
-        # If the size is a square, you can specify with a single number
+        
+        #x = F.max_pool2d(F.relu(self.conv2_bn(self.conv2(x))), 2)
         x = F.max_pool2d(F.relu(self.conv2(x)), 2)
+        
         x = F.max_pool2d(F.relu(self.conv3(x)), 2)
-        #x = F.max_pool2d(F.relu(self.conv4(x)), 2)
-        #x = F.max_pool2d(F.relu(self.conv5(x)), 2)
-        #x = F.max_pool2d(F.relu(self.conv6(x)), 2)
-        x = torch.flatten(x, 1) # flatten all dimensions except the batch dimension
+        #x = F.max_pool2d(F.relu(self.conv3_bn(self.conv3(x))), 2)
+        
+        x = torch.flatten(x, 1) 
+        
         x = F.relu(self.fc1(x))
+        #x = F.relu(self.fc1_bn(self.fc1(x)))
+        
         x = F.relu(self.fc2(x))
+        #x = F.relu(self.fc2_bn(self.fc2(x)))
         x = self.fc3(x)
         return x
 
@@ -61,7 +98,7 @@ class Net(nn.Module):
 
 class Images:
     def __init__(self, quad="A"):
-        dirname="/global/cfs/cdirs/m3992/png/"
+        dirname="/global/cfs/cdirs/m3992/png/"  
         self.fnames = glob.glob(dirname+"*%s.png"%quad)
         assert self.fnames
         self.nums = [self.get_num(f) for f in self.fnames]
@@ -162,16 +199,27 @@ def tensorload(images, dev, batchsize=4, start=0,  Nload=None, norm=False):
 
 
 def main():
-    nety = Net()
-    #imgs = Images()
-    imgs = H5Images("trainimages.h5")
-    criterion = nn.MSELoss()
-    optimizer = optim.SGD(nety.parameters(), lr=0.001, momentum=0.9)
+    # choices
+    MODELS = {"le": NET, "res": RESNET}
+    LOSSES = {"L1": nn.L1Loss, "L2": nn.MSELoss}
+
+    nety = MODELS[args.archi]() 
+    criterion = LOSSES[args.loss]()
+    optimizer = optim.SGD(nety.parameters(), lr=args.lr, momentum=0.9)
+
+    imgs = H5Images("trainimages.h5") # data loader
+
+    if not os.path.exists(args.outdir):
+        os.makedirs(args.outdir)
+    logname = os.path.join(args.outdir, "commandline.txt")
+    with open(logname, "w") as o:
+        o.write(" ".join(sys.argv) + "\n")
 
     acc = 0
-    for epoch in range(100):
+    mx_acc = 0
+    for epoch in range(args.ep):
 
-        train_tens = tensorload(imgs, nety.dev, start=2000, batchsize=64)
+        train_tens = tensorload(imgs, nety.dev, start=2000, batchsize=args.bs)
 
         losses = []
         for i, (data, labels) in enumerate(train_tens):
@@ -184,8 +232,8 @@ def main():
             optimizer.step()
             losses.append(loss.item())
             if i % 10 == 0 and len(losses)> 1:  
-                print("Ep:%d, batch:%d, loss:  %.5f (latest acc=%.2f%%)" \
-                    % (epoch, i, np.mean(losses), acc))
+                print("Ep:%d, batch:%d, loss:  %.5f (latest acc=%.2f%%, max acc=%.2f%%)" \
+                    % (epoch, i, np.mean(losses), acc, mx_acc))
                 losses = []
     
         test_tens = tensorload(imgs, nety.dev, batchsize=2, start=1000, Nload=1000)
@@ -210,6 +258,7 @@ def main():
             total += len(labels)
             
         acc = len(good_labels) / total*100.
+        mx_acc = max(acc, mx_acc)
         print("Accuracy at Ep%d: %.2f%%, Ave/Stdev accurate labels=%.3f +- %.3f Angstrom" \
             % (epoch, acc, np.mean(good_labels), np.std(good_labels)))
 
@@ -221,6 +270,13 @@ def main():
 
         print("predicted-VS-truth: PearsonR=%.3f%%, SpearmanR=%.3f%%" \
             % (pear*100, spear*100))
+
+        if (epoch+1)%args.saveFreq==0:
+            outname = os.path.join(args.outdir, "nety_ep%d.nn"%epoch)
+            torch.save(nety.state_dict(), outname)
+    
+    outname = os.path.join(args.outdir, "nety_epLast.nn"%epoch)
+    torch.save(nety.state_dict(), outname)
 
 
 if __name__=="__main__":
