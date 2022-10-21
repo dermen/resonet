@@ -8,7 +8,7 @@ parser.add_argument("--plot", action="store_true")
 parser.add_argument("--bs", type=int,default=64)
 parser.add_argument("--loss", type=str, choices=["L1", "L2"], default="L2")
 parser.add_argument("--saveFreq", type=int, default=10)
-parser.add_argument("--archi", type=str, choices=["le", "res"], default="res")
+parser.add_argument("--arch", type=str, choices=["le", "res18", "res50"], default="le")
 args = parser.parse_args()
 
 import glob
@@ -34,16 +34,14 @@ WAVELEN=.977794
 PIXSIZE=.6
 IMG_SH=546,518
 Y,X = np.indices(IMG_SH)
-centX, centY = -0.22111771, -0.77670382 #np.load("centerA.npy")
+centX, centY = -0.22111771, -0.77670382 
 Rad = np.sqrt((Y-centY)**2 + (X-centX)**2)
 QMAP = np.sin(0.5*np.arctan(Rad*PIXSIZE/DETDIST))*2/WAVELEN
 
 
-class RESNET(nn.Module):
-    def __init__(self, device_id=0):
-        super(RESNET, self).__init__()
-        self.dev = "cuda:%d" % device_id
-        self.resnet = resnet18().to(self.dev)
+class RESNetBase(nn.Module):
+
+    def _set_blocks(self):
         self.resnet.conv1 = nn.Conv2d(2, 64, 
             kernel_size=7, stride=2, padding=3,bias=False, device=self.dev)
         self.fc1 = nn.Linear(1000,100, device=self.dev)
@@ -57,10 +55,25 @@ class RESNET(nn.Module):
         return x
 
 
-class Net(nn.Module):
+class RESNet18(RESNetBase):
+    def __init__(self, device_id=0):
+        super().__init__()
+        self.dev = "cuda:%d" % device_id
+        self.resnet = resnet18().to(self.dev)
+        self._set_blocks()
+
+class RESNet50(RESNetBase):
+    def __init__(self, device_id=0):
+        super().__init__()
+        self.dev = "cuda:%d" % device_id
+        self.resnet = resnet50().to(self.dev)
+        self._set_blocks()
+
+
+class LeNet(nn.Module):
 
     def __init__(self, device_id=0):
-        super(Net, self).__init__()
+        super().__init__()
         self.dev = "cuda:%d" % device_id
         self.conv1 = nn.Conv2d(2, 6, 3, device=self.dev)
         self.conv2 = nn.Conv2d(6, 16, 3, device=self.dev)
@@ -91,6 +104,7 @@ class Net(nn.Module):
         
         x = F.relu(self.fc2(x))
         #x = F.relu(self.fc2_bn(self.fc2(x)))
+        # FIXME: batchnorm breaks some validation below 
         x = self.fc3(x)
         return x
 
@@ -200,10 +214,10 @@ def tensorload(images, dev, batchsize=4, start=0,  Nload=None, norm=False):
 
 def main():
     # choices
-    MODELS = {"le": NET, "res": RESNET}
+    ARCHES = {"le": LeNet, "res18": RESNet18, "res50": RESNet50}
     LOSSES = {"L1": nn.L1Loss, "L2": nn.MSELoss}
 
-    nety = MODELS[args.archi]() 
+    nety = ARCHES[args.arch]() 
     criterion = LOSSES[args.loss]()
     optimizer = optim.SGD(nety.parameters(), lr=args.lr, momentum=0.9)
 
@@ -219,6 +233,9 @@ def main():
     mx_acc = 0
     for epoch in range(args.ep):
 
+        # <><><><><><><><
+        #    Trainings 
+        # <><><><><><><><>
         train_tens = tensorload(imgs, nety.dev, start=2000, batchsize=args.bs)
 
         losses = []
@@ -237,6 +254,10 @@ def main():
                 losses = []
     
         test_tens = tensorload(imgs, nety.dev, batchsize=2, start=1000, Nload=1000)
+
+        # <><><><><><><><
+        #   Validation
+        # <><><><><><><><>
         Ngood = 0
         total = 0
         good_labels = []
@@ -271,6 +292,10 @@ def main():
         print("predicted-VS-truth: PearsonR=%.3f%%, SpearmanR=%.3f%%" \
             % (pear*100, spear*100))
 
+        # <><><><><><><><
+        #  End Validation
+        # <><><><><><><><>
+
         if (epoch+1)%args.saveFreq==0:
             outname = os.path.join(args.outdir, "nety_ep%d.nn"%epoch)
             torch.save(nety.state_dict(), outname)
@@ -282,6 +307,7 @@ def main():
 if __name__=="__main__":
     main()
 
+#   TODO
 #   BINARY IMAGE CLASSIFIER -> get in the ballpark
 #   Shell Image regressions -> fine tune using resolution shell
 
