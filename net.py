@@ -13,7 +13,7 @@ def get_args():
     parser.add_argument("--loglevel", type=str, choices=["debug", "info", "critical"], default="info")
     parser.add_argument("--logfile", type=str, default="train.log")
     args = parser.parse_args()
-    if args.h:
+    if hasattr(args, "h") or hasattr(args, "help"):
         parser.print_help()
         sys.exit()
 
