@@ -1,15 +1,23 @@
 from argparse import ArgumentParser
 
-parser = ArgumentParser()
-parser.add_argument("ep", type=int)
-parser.add_argument("outdir", type=str)
-parser.add_argument("--lr", type=float, default=0.0075)
-parser.add_argument("--plot", action="store_true")
-parser.add_argument("--bs", type=int,default=64)
-parser.add_argument("--loss", type=str, choices=["L1", "L2"], default="L2")
-parser.add_argument("--saveFreq", type=int, default=10)
-parser.add_argument("--arch", type=str, choices=["le", "res18", "res50"], default="le")
-args = parser.parse_args()
+def get_args():
+    parser = ArgumentParser()
+    parser.add_argument("ep", type=int)
+    parser.add_argument("outdir", type=str)
+    parser.add_argument("--lr", type=float, default=0.0075)
+    parser.add_argument("--noDisplay", action="store_true")
+    parser.add_argument("--bs", type=int,default=64)
+    parser.add_argument("--loss", type=str, choices=["L1", "L2"], default="L2")
+    parser.add_argument("--saveFreq", type=int, default=10)
+    parser.add_argument("--arch", type=str, choices=["le", "res18", "res50"], default="le")
+    parser.add_argument("--loglevel", type=str, choices=["debug", "info", "critical"], default="info")
+    parser.add_argument("--logfile", type=str, default="train.log")
+    args = parser.parse_args()
+    if args.h:
+        parser.print_help()
+        sys.exit()
+
+    return parser.parse_args()
 
 import glob
 import re
@@ -18,13 +26,35 @@ import sys
 import h5py
 import numpy as np
 import pandas
+import logging
+from itertools import chain
 from scipy.stats import pearsonr, spearmanr
 from PIL import Image
+import pylab as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision.models import resnet18, resnet50
+from matplotlib.ticker import FormatStrFormatter
+
+
+def get_logger(filename=None, level="info"):
+    logger = logging.getLogger("resonet")
+    levels = {"info": 20, "debug": 10, "critical": 50}
+    logger.setLevel(levels[level])
+
+    console = logging.StreamHandler()
+    console.setFormatter(logging.Formatter("%(message)s"))
+    console.setLevel(levels[level])
+    logger.addHandler(console)
+
+    if filename is not None:
+        logfile = logging.FileHandler(filename)
+        logfile.setFormatter(logging.Formatter("%(asctime)s >>  %(message)s"))
+        logfile.setLevel(levels[level])
+        logger.addHandler(logfile)
+    return logger
 
 
 MX=127
@@ -161,7 +191,7 @@ class Images:
             mask = self.load_mask(self.fnames[i])
             imgQ = np.zeros_like(img)
             imgQ[mask] = QMAP[mask]
-            combined_imgs = np.array([img, imgQ])[:,:512,:512]
+            combined_imgs = np.array([img, QMAP])[:,:512,:512]
             return combined_imgs, label 
 
     @staticmethod
@@ -185,34 +215,158 @@ class H5Images:
     def __getitem__(self, i):
         if isinstance(i, slice):
             return self.images[i], self.labels[i]
-        else:
+        elif isinstance(i, int):
             return self.images[i:i+1], self.labels[i:i+1]
+        else:
+            return self.images[i], self.labels[i]
 
 
 
-def tensorload(images, dev, batchsize=4, start=0,  Nload=None, norm=False):
+def tensorload(images, dev, batchsize=4, start=0,  Nload=None, norm=False, seed=None):
     """images is a specialized class with a `total` property, and
     a specialized getitem method (e.g. Images defined above)
     """
+    np.random.seed(seed)
     if Nload is None:
         Nload = images.total - start
 
     stop = start + Nload
     assert start < stop <= images.total
 
-    while start < stop:
-        imgs, labels = images[start:start+batchsize]
+    inds = np.arange(start, stop)
+    nroll = np.random.randint(0, len(inds))
+    nbatch = int(len(inds)/batchsize)
+    batches = np.array_split( np.roll(inds, nroll), nbatch)
+    batch_order = np.random.permutation(len(batches))
+    for i_batch in batch_order:
+        batch = batches[i_batch]
+            
+        if start in set(batch):
+            istart = np.where(batch==start)[0][0]
+            if istart==0:
+                imgs, labels = images[batch[0]:batch[-1]] 
+            else:
+                slc_left = slice(batch[0], batch[istart-1]+1, 1)
+                slc_right = slice(batch[istart], batch[-1], 1)
+                imgs_left, labels_left = images[slc_left]
+                imgs_right, labels_right = images[slc_right]
+                
+                imgs = np.append(imgs_left, imgs_right, axis=0)
+                labels = np.append(labels_left, labels_right, axis=0)
+        else:
+            imgs, labels = images[batch[0]:batch[-1]] 
+
         if norm:
             imgs /= MX
             imgs -= MN
         imgs = torch.tensor(imgs).to(dev)
         labels = torch.tensor(labels).to(dev)
-        start += batchsize
         yield imgs, labels
 
 
 
+def validate(input_tens, model, epoch, criterion):
+    """tens is return value of tensorloader"""
+    logger = logging.getLogger("resonet")
+
+    total = 0
+    good_labels = []
+    all_lab = []
+    all_pred = []
+    all_loss = []
+    for i,(data,labels) in enumerate(input_tens):
+        print("validation batch %d"% i,end="\r", flush=True)
+        pred = model(data)
+        
+        all_lab += [l.item() for l in labels]
+        all_pred += [p.item() for p in pred]
+
+        loss = criterion(labels, pred)
+        all_loss .append(loss.item())
+
+        errors = (pred-labels).abs()/labels
+        is_accurate = errors < 0.1
+
+        for l in labels[is_accurate]:
+            good_labels.append(1/l.item())
+
+        total += len(labels)
+        
+    acc = len(good_labels) / total*100.
+    all_lab = 1/np.array(all_lab) # convert to resolutions
+    all_pred = 1/np.array(all_pred) # convert to resolutions
+    pear = pearsonr(all_lab, all_pred)[0]
+    spear = spearmanr(all_lab, all_pred)[0]
+    logger.info("\taccuracy at Ep%d: %.2f%%, Ave/Stdev accurate labels=%.3f +- %.3f Angstrom" \
+        % (epoch, acc, np.mean(good_labels), np.std(good_labels)))
+    logger.info("\tpredicted-VS-truth: PearsonR=%.3f%%, SpearmanR=%.3f%%" \
+        % (pear*100, spear*100))
+    ave_loss = np.mean(all_loss)
+    return acc, ave_loss, all_lab, all_pred
+
+
+def plot_acc(ax, idx, acc, epoch):
+    lx, ly = ax.lines[idx].get_data()
+    ax.lines[idx].set_data(np.append(lx, epoch),np.append(ly, acc) )
+    if epoch==0:
+        ax.set_ylim(acc*0.97,acc*1.03)
+    else:
+        ax.set_ylim(min(min(ly), acc)*0.97, max(max(ly), acc)*1.03)
+
+
+def save_results_fig(outname, test_lab, test_pred):
+    plt.figure()
+    plt.plot(test_lab, test_pred, '.')
+    plt.xlabel("resolution $\AA$ (truth)", fontsize=16)
+    plt.ylabel("resolution $\AA$ (prediction)", fontsize=16)
+    plt.gca().tick_params(labelsize=12)
+    plt.gca().set_yscale("log")
+    plt.gca().set_xscale("log")
+    plt.gca().yaxis.set_major_formatter(FormatStrFormatter("%d"))
+    plt.gca().xaxis.set_major_formatter(FormatStrFormatter("%d"))
+    plt.gca().yaxis.set_minor_formatter(FormatStrFormatter("%d"))
+    plt.gca().xaxis.set_minor_formatter(FormatStrFormatter("%d"))
+    plt.subplots_adjust(bottom=.13, left=0.12, right=0.96, top=0.96)
+    plt.savefig(outname.replace(".nn", "_results.png"))
+    plt.close()
+
+
+def set_ylims(ax):
+    ax.set_ylim(min([min(axl.get_data()[1]) for axl in ax.lines])*0.97,
+                max([max(axl.get_data()[1]) for axl in ax.lines])*1.03)
+
+
+def setup_subplots():
+    fig, (ax0, ax1) = plt.subplots(nrows=2, ncols=1, figsize=(6.5,5.5))
+    ms=8  # markersize
+    ax0.tick_params(labelsize=12)
+    ax1.tick_params(labelsize=12)
+    ax0.grid(1, ls='--')
+    ax1.grid(1, ls='--')
+    ax0.set_ylabel("loss", fontsize=16)
+    ax0.set_xticklabels([])
+    ax1.set_xlabel("epoch", fontsize=16)
+    ax1.set_ylabel("score (%)", fontsize=16)
+    ax1.plot([],[], "tomato", marker="s",ms=ms, label="test")
+    ax1.plot([],[], "C0", marker="o", ms=ms,label="train")
+    ax0.plot([],[], color='tomato',marker='s', ms=ms,lw=2, label="test")
+    ax0.plot([],[], color='C0',marker='o', lw=2, ms=ms,label="train")
+    ax0.plot([],[], "C2", marker="*",ms=ms, label="train-full")
+    plt.subplots_adjust(top=0.99,right=0.99,left=0.15, hspace=0.04, bottom=0.12)
+    return fig, (ax0, ax1)
+            
+
+def update_plots(ax0,ax1, epoch):
+    ax0.set_xlim(-0.5, epoch+0.5)
+    ax1.set_xlim(-0.5, epoch+0.5)
+    set_ylims(ax0)
+    set_ylims(ax1)
+    ax0.legend(prop={"size":12})
+    ax1.legend(prop={"size":12})
+
+
 def main():
+    args = get_args()
     # choices
     ARCHES = {"le": LeNet, "res18": RESNet18, "res50": RESNet50}
     LOSSES = {"L1": nn.L1Loss, "L2": nn.MSELoss}
@@ -223,22 +377,32 @@ def main():
 
     imgs = H5Images("trainimages.h5") # data loader
 
+    # setup recordkeeping
     if not os.path.exists(args.outdir):
         os.makedirs(args.outdir)
-    logname = os.path.join(args.outdir, "commandline.txt")
-    with open(logname, "w") as o:
-        o.write(" ".join(sys.argv) + "\n")
+    logname = os.path.join(args.outdir, args.logfile)
+    logger = get_logger(logname, args.loglevel)
+    logger.info("==== BEGIN RESONET MAIN ====")
+    cmdline = " ".join(sys.argv)
+    logger.critical(cmdline)
 
+    # optional plots
+    fig, (ax0, ax1) = setup_subplots()
+
+    nety.train()
     acc = 0
     mx_acc = 0
+    seeds = np.random.choice(9999999, args.ep, replace=False)
     for epoch in range(args.ep):
 
         # <><><><><><><><
         #    Trainings 
         # <><><><><><><><>
-        train_tens = tensorload(imgs, nety.dev, start=2000, batchsize=args.bs)
+        train_tens = tensorload(imgs, nety.dev, start=2000, 
+                            batchsize=args.bs, seed=seeds[epoch] )
 
         losses = []
+        all_losses = []
         for i, (data, labels) in enumerate(train_tens):
 
             optimizer.zero_grad()
@@ -247,61 +411,62 @@ def main():
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            losses.append(loss.item())
+            l = loss.item()
+            losses.append(l)
+            all_losses.append(l)
             if i % 10 == 0 and len(losses)> 1:  
-                print("Ep:%d, batch:%d, loss:  %.5f (latest acc=%.2f%%, max acc=%.2f%%)" \
-                    % (epoch, i, np.mean(losses), acc, mx_acc))
+                ave_loss = np.mean(losses)
+                logger.info("Ep:%d, batch:%d, loss:  %.5f (latest acc=%.2f%%, max acc=%.2f%%)" \
+                    % (epoch, i, ave_loss, acc, mx_acc))
                 losses = []
-    
-        test_tens = tensorload(imgs, nety.dev, batchsize=2, start=1000, Nload=1000)
+                if not args.noDisplay:
+                    plt.draw()
+                    plt.pause(0.01)
+        
+        ave_train_loss = np.mean(all_losses)
 
+        test_tens = tensorload(imgs, nety.dev, batchsize=2, start=1000, Nload=1000)
+        train_tens = tensorload(imgs, nety.dev, batchsize=2, start=2000, Nload=1000)
         # <><><><><><><><
         #   Validation
         # <><><><><><><><>
-        Ngood = 0
-        total = 0
-        good_labels = []
-        print("Computing accuracy!")
-        all_lab = []
-        all_pred = []
-        for data,labels in test_tens:
-            pred = nety(data)
+        nety.eval()
+        with torch.no_grad():
+            logger.info("Computing test accuracy:")
+            acc,test_loss, test_lab, test_pred = validate(test_tens, nety, epoch, criterion)
+            logger.info("Computing train accuracy:")
+            train_acc,train_loss,_,_ = validate(train_tens, nety, epoch, criterion)
+
+            mx_acc = max(acc, mx_acc)
             
-            all_lab += [l.item() for l in labels]
-            all_pred += [p.item() for p in pred]
+            plot_acc(ax0, 0, test_loss, epoch)
+            plot_acc(ax0, 1, train_loss, epoch)
+            plot_acc(ax0, 2, ave_train_loss, epoch)
+            plot_acc(ax1, 0, acc, epoch)
+            plot_acc(ax1, 1, train_acc, epoch)
 
-            errors = (pred-labels).abs()/labels
-            is_accurate = errors < 0.1
+            update_plots(ax0,ax1, epoch)
 
-            for l in labels[is_accurate]:
-                good_labels.append(1/l.item())
-
-            total += len(labels)
-            
-        acc = len(good_labels) / total*100.
-        mx_acc = max(acc, mx_acc)
-        print("Accuracy at Ep%d: %.2f%%, Ave/Stdev accurate labels=%.3f +- %.3f Angstrom" \
-            % (epoch, acc, np.mean(good_labels), np.std(good_labels)))
-
-        # compute correlation coefficients
-        all_lab = 1/np.array(all_lab) # convert to resolutions
-        all_pred = 1/np.array(all_pred) # convert to resolutions
-        pear = pearsonr(all_lab, all_pred)[0]
-        spear = spearmanr(all_lab, all_pred)[0]
-
-        print("predicted-VS-truth: PearsonR=%.3f%%, SpearmanR=%.3f%%" \
-            % (pear*100, spear*100))
+            if not args.noDisplay:
+                plt.draw()
+                plt.pause(0.3)
 
         # <><><><><><><><
         #  End Validation
         # <><><><><><><><>
 
+        # optional save
         if (epoch+1)%args.saveFreq==0:
-            outname = os.path.join(args.outdir, "nety_ep%d.nn"%epoch)
+            outname = os.path.join(args.outdir, "nety_ep%d.nn"%(epoch+1))
             torch.save(nety.state_dict(), outname)
-    
-    outname = os.path.join(args.outdir, "nety_epLast.nn"%epoch)
+            plt.savefig(outname.replace(".nn", "_train.png"))
+            save_results_fig(outname,test_lab, test_pred) 
+            
+    # final save! 
+    outname = os.path.join(args.outdir, "nety_epLast.nn")
     torch.save(nety.state_dict(), outname)
+    plt.savefig(outname.replace(".nn", "_train.png"))
+    save_results_fig(outname,test_lab, test_pred) 
 
 
 if __name__=="__main__":
@@ -310,4 +475,4 @@ if __name__=="__main__":
 #   TODO
 #   BINARY IMAGE CLASSIFIER -> get in the ballpark
 #   Shell Image regressions -> fine tune using resolution shell
-
+#   Spotfinding -> MultiHeadedAttenton models
