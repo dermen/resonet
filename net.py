@@ -3,15 +3,20 @@ from argparse import ArgumentParser
 def get_args():
     parser = ArgumentParser()
     parser.add_argument("ep", type=int)
+    parser.add_argument("input", type=str)
     parser.add_argument("outdir", type=str)
-    parser.add_argument("--lr", type=float, default=0.0075)
+    parser.add_argument("--lr", type=float, default=0.000125)
     parser.add_argument("--noDisplay", action="store_true")
-    parser.add_argument("--bs", type=int,default=64)
-    parser.add_argument("--loss", type=str, choices=["L1", "L2"], default="L2")
+    parser.add_argument("--bs", type=int,default=16)
+    parser.add_argument("--loss", type=str, choices=["L1", "L2"], default="L1")
     parser.add_argument("--saveFreq", type=int, default=10)
-    parser.add_argument("--arch", type=str, choices=["le", "res18", "res50"], default="le")
-    parser.add_argument("--loglevel", type=str, choices=["debug", "info", "critical"], default="info")
+    parser.add_argument("--arch", type=str, choices=["le", "res18", "res50"], 
+                        default="res50")
+    parser.add_argument("--loglevel", type=str, 
+            choices=["debug", "info", "critical"], default="info")
     parser.add_argument("--logfile", type=str, default="train.log")
+    parser.add_argument("--quickTest", action="store_true")
+    parser.add_argument("--labelName", type=str, default="labels")
     args = parser.parse_args()
     if hasattr(args, "h") or hasattr(args, "help"):
         parser.print_help()
@@ -20,6 +25,7 @@ def get_args():
     return parser.parse_args()
 
 import glob
+from abc import abstractmethod
 import re
 import os
 import sys
@@ -75,7 +81,7 @@ class RESNetBase(nn.Module):
         self.resnet.conv1 = nn.Conv2d(2, 64, 
             kernel_size=7, stride=2, padding=3,bias=False, device=self.dev)
         self.fc1 = nn.Linear(1000,100, device=self.dev)
-        self.fc2 = nn.Linear(100,1, device=self.dev)
+        self.fc2 = nn.Linear(100, self.nout, device=self.dev)
         
     def forward (self, x):
         x = self.resnet(x)
@@ -84,27 +90,53 @@ class RESNetBase(nn.Module):
         x = self.fc2(x)
         return x
 
+    @property
+    @abstractmethod
+    def nout(self):
+        """number of output channels"""
+        return self._nout 
+    
+    @nout.setter
+    @abstractmethod
+    def nout(self, val):
+        self._nout = val
+
+    @property
+    @abstractmethod
+    def dev(self):
+        """pytorch device id e.g. `cuda:0`"""
+        return self._dev
+
+    @dev.setter
+    @abstractmethod
+    def dev(self, val):
+        self._dev = val    
+
 
 class RESNet18(RESNetBase):
-    def __init__(self, device_id=0):
+    def __init__(self, device_id=0, nout=1):
         super().__init__()
         self.dev = "cuda:%d" % device_id
+        self.nout = nout
         self.resnet = resnet18().to(self.dev)
         self._set_blocks()
 
+
 class RESNet50(RESNetBase):
-    def __init__(self, device_id=0):
+    def __init__(self, device_id=0, nout=1):
         super().__init__()
         self.dev = "cuda:%d" % device_id
+        self.nout = nout
         self.resnet = resnet50().to(self.dev)
         self._set_blocks()
 
 
 class LeNet(nn.Module):
 
-    def __init__(self, device_id=0):
+    def __init__(self, device_id=0, nout=1):
         super().__init__()
         self.dev = "cuda:%d" % device_id
+        self.nout = nout
         self.conv1 = nn.Conv2d(2, 6, 3, device=self.dev)
         self.conv2 = nn.Conv2d(6, 16, 3, device=self.dev)
         self.conv2_bn = nn.BatchNorm2d(16, device=self.dev)
@@ -115,7 +147,7 @@ class LeNet(nn.Module):
         self.fc1_bn = nn.BatchNorm1d(1000, device=self.dev)
         self.fc2 = nn.Linear(1000, 100, device=self.dev)
         self.fc2_bn = nn.BatchNorm1d(100, device=self.dev)
-        self.fc3 = nn.Linear(100, 1, device=self.dev)
+        self.fc3 = nn.Linear(100, self.nout, device=self.dev)
         self.relu = nn.ReLU()
 
     def forward(self, x):
@@ -147,6 +179,7 @@ class Images:
         assert self.fnames
         self.nums = [self.get_num(f) for f in self.fnames]
         self.img_sh  = 546, 518
+        self.props = ["reso"]
 
         self.prop = pandas.read_csv(
             dirname+"num_reso_mos_B_icy1_icy2_cell_SGnum_pdbid_stolid.txt", 
@@ -181,11 +214,15 @@ class Images:
                 labels.append(label)
 
             labels = pandas.concat(labels).reset_index(drop=True)
-            labels = 1/labels.reso.values.astype(np.float32)[:,None]
+            labels = labels[self.props].values.astype(np.float32)
+            if "reso" in self.props:
+                i_reso = self.props.index("reso")
+                labels[:,i_reso] = 1/labels[:,i_reso]
             return np.array(imgs), labels
         else:
             img = Image.open(self.fnames[i])
             num = self.nums[i] 
+
             label = self.prop.query("num==%d" % num)
             img = np.reshape(img.getdata(), self.img_sh).astype(np.float32)
             mask = self.load_mask(self.fnames[i])
@@ -193,6 +230,7 @@ class Images:
             imgQ[mask] = QMAP[mask]
             combined_imgs = np.array([img, QMAP])[:,:512,:512]
             return combined_imgs, label 
+        
 
     @staticmethod
     def load_mask(f):
@@ -203,10 +241,16 @@ class Images:
 
 
 class H5Images:
-    def __init__(self, h5name):
+    def __init__(self, h5name, labels=None):
+        if labels is None:
+            labels = "labels"
         self.h5 = h5py.File(h5name, "r")
         self.images = self.h5["images"]
-        self.labels = self.h5["labels"]
+        self.labels = self.h5[labels]
+
+    @property
+    def nlab(self):
+        return self.labels.shape[-1]
 
     @property
     def total(self):
@@ -214,13 +258,12 @@ class H5Images:
 
     def __getitem__(self, i):
         if isinstance(i, slice):
-            return self.images[i], self.labels[i]
+            data, lab= self.images[i], self.labels[i]
         elif isinstance(i, int):
-            return self.images[i:i+1], self.labels[i:i+1]
+            data, lab= self.images[i:i+1], self.labels[i:i+1]
         else:
-            return self.images[i], self.labels[i]
-
-
+            data, lab= self.images[i], self.labels[i]
+        return data, lab
 
 def tensorload(images, dev, batchsize=4, start=0,  Nload=None, norm=False, seed=None):
     """images is a specialized class with a `total` property, and
@@ -259,18 +302,21 @@ def tensorload(images, dev, batchsize=4, start=0,  Nload=None, norm=False, seed=
         if norm:
             imgs /= MX
             imgs -= MN
-        imgs = torch.tensor(imgs).to(dev)
+        imgs = torch.tensor(imgs[:,:,:512,:512]).to(dev)
         labels = torch.tensor(labels).to(dev)
         yield imgs, labels
 
 
 
 def validate(input_tens, model, epoch, criterion):
-    """tens is return value of tensorloader"""
+    """
+    tens is return value of tensorloader
+    TODO make validation multi-channel (e.g. average accuracy over all labels)
+    """
     logger = logging.getLogger("resonet")
 
     total = 0
-    good_labels = []
+    nacc = 0 # number of accurate predictions
     all_lab = []
     all_pred = []
     all_loss = []
@@ -278,29 +324,29 @@ def validate(input_tens, model, epoch, criterion):
         print("validation batch %d"% i,end="\r", flush=True)
         pred = model(data)
         
-        all_lab += [l.item() for l in labels]
-        all_pred += [p.item() for p in pred]
+        all_lab += [[l.item() for l in labs] for labs in labels]
+        all_pred += [[p.item() for p in preds] for preds in pred]
 
         loss = criterion(labels, pred)
-        all_loss .append(loss.item())
+        all_loss.append(loss.item())
 
         errors = (pred-labels).abs()/labels
         is_accurate = errors < 0.1
 
-        for l in labels[is_accurate]:
-            good_labels.append(1/l.item())
+        nacc += is_accurate.all(dim=1).sum().item()
 
         total += len(labels)
         
-    acc = len(good_labels) / total*100.
-    all_lab = 1/np.array(all_lab) # convert to resolutions
-    all_pred = 1/np.array(all_pred) # convert to resolutions
-    pear = pearsonr(all_lab, all_pred)[0]
-    spear = spearmanr(all_lab, all_pred)[0]
-    logger.info("\taccuracy at Ep%d: %.2f%%, Ave/Stdev accurate labels=%.3f +- %.3f Angstrom" \
-        % (epoch, acc, np.mean(good_labels), np.std(good_labels)))
-    logger.info("\tpredicted-VS-truth: PearsonR=%.3f%%, SpearmanR=%.3f%%" \
-        % (pear*100, spear*100))
+    acc = nacc / total*100.
+    all_lab = np.array(all_lab).T
+    all_pred = np.array(all_pred).T
+    pears = [pearsonr(L,P)[0] for L,P in zip(all_lab, all_pred)]
+    spears = [spearmanr(L,P)[0] for L,P in zip(all_lab, all_pred)]
+    logger.info("\taccuracy at Ep%d: %.2f%%" \
+        % (epoch, acc))
+    for pear, spear in zip(pears, spears):
+        logger.info("\tpredicted-VS-truth: PearsonR=%.3f%%, SpearmanR=%.3f%%" \
+            % (pear*100, spear*100))
     ave_loss = np.mean(all_loss)
     return acc, ave_loss, all_lab, all_pred
 
@@ -315,20 +361,21 @@ def plot_acc(ax, idx, acc, epoch):
 
 
 def save_results_fig(outname, test_lab, test_pred):
-    plt.figure()
-    plt.plot(test_lab, test_pred, '.')
-    plt.xlabel("resolution $\AA$ (truth)", fontsize=16)
-    plt.ylabel("resolution $\AA$ (prediction)", fontsize=16)
-    plt.gca().tick_params(labelsize=12)
-    plt.gca().set_yscale("log")
-    plt.gca().set_xscale("log")
-    plt.gca().yaxis.set_major_formatter(FormatStrFormatter("%d"))
-    plt.gca().xaxis.set_major_formatter(FormatStrFormatter("%d"))
-    plt.gca().yaxis.set_minor_formatter(FormatStrFormatter("%d"))
-    plt.gca().xaxis.set_minor_formatter(FormatStrFormatter("%d"))
-    plt.subplots_adjust(bottom=.13, left=0.12, right=0.96, top=0.96)
-    plt.savefig(outname.replace(".nn", "_results.png"))
-    plt.close()
+    for i_prop in range(test_lab.shape[0]):
+        plt.figure()
+        plt.plot(test_lab[i_prop], test_pred[i_prop], '.')
+        plt.title("Learned property %d"% i_prop)
+        plt.xlabel("truth", fontsize=16)
+        plt.ylabel("prediction", fontsize=16)
+        plt.gca().tick_params(labelsize=12)
+        plt.gca().grid(lw=0.5, ls="--")
+        plt.subplots_adjust(bottom=.13, left=0.12, right=0.96, top=0.91)
+        plt.savefig(outname.replace(".nn", "_results%d.png" % i_prop))
+        plt.close()
+
+    with h5py.File(outname.replace(".nn", "_predictions.h5"), "w") as h:
+        h.create_dataset("test_pred",data= test_pred)
+        h.create_dataset("test_lab", data=test_lab)
 
 
 def set_ylims(ax):
@@ -367,15 +414,19 @@ def update_plots(ax0,ax1, epoch):
 
 def main():
     args = get_args()
-    # choices
+    
+    assert os.path.exists(args.input)
+    imgs = H5Images(args.input, args.labelName) # data loader
+    
+    # model and criterion choices
     ARCHES = {"le": LeNet, "res18": RESNet18, "res50": RESNet50}
     LOSSES = {"L1": nn.L1Loss, "L2": nn.MSELoss}
 
-    nety = ARCHES[args.arch]() 
+    #instantiate model
+    nety = ARCHES[args.arch](nout=imgs.nlab) 
     criterion = LOSSES[args.loss]()
     optimizer = optim.SGD(nety.parameters(), lr=args.lr, momentum=0.9)
 
-    imgs = H5Images("trainimages.h5") # data loader
 
     # setup recordkeeping
     if not os.path.exists(args.outdir):
@@ -399,7 +450,8 @@ def main():
         #    Trainings 
         # <><><><><><><><>
         train_tens = tensorload(imgs, nety.dev, start=2000, 
-                            batchsize=args.bs, seed=seeds[epoch] )
+                            batchsize=args.bs, seed=seeds[epoch], 
+                            Nload=100 if args.quickTest else None)
 
         losses = []
         all_losses = []
@@ -425,8 +477,9 @@ def main():
         
         ave_train_loss = np.mean(all_losses)
 
-        test_tens = tensorload(imgs, nety.dev, batchsize=2, start=1000, Nload=1000)
-        train_tens = tensorload(imgs, nety.dev, batchsize=2, start=2000, Nload=1000)
+        nld = 100 if args.quickTest else 1000
+        test_tens = tensorload(imgs, nety.dev, batchsize=2, start=1000, Nload=nld)
+        train_tens = tensorload(imgs, nety.dev, batchsize=2, start=2000, Nload=nld)
         # <><><><><><><><
         #   Validation
         # <><><><><><><><>
