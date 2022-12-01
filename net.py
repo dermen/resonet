@@ -42,6 +42,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision.models import resnet18, resnet50
+from torch.utils.data import Dataset
 from matplotlib.ticker import FormatStrFormatter
 
 
@@ -78,7 +79,7 @@ QMAP = np.sin(0.5*np.arctan(Rad*PIXSIZE/DETDIST))*2/WAVELEN
 class RESNetBase(nn.Module):
 
     def _set_blocks(self):
-        self.resnet.conv1 = nn.Conv2d(2, 64, 
+        self.resnet.conv1 = nn.Conv2d(1, 64, 
             kernel_size=7, stride=2, padding=3,bias=False, device=self.dev)
         self.fc1 = nn.Linear(1000,100, device=self.dev)
         self.fc2 = nn.Linear(100, self.nout, device=self.dev)
@@ -239,6 +240,29 @@ class Images:
         mask = np.load(maskname)
         return mask
 
+class TorchDset(Dataset):
+
+    def __init__(self, h5name, dev, labels=None):
+        if labels is None:
+            labels = "labels"
+        self.h5 = h5py.File(h5name, "r")
+        self.images = self.h5["images"]
+        self.labels = self.h5[labels]
+        self.dev = dev
+
+    def __len__(self):
+        return self.images.shape[0]
+    
+    def __getitem__(self, i):
+        #if not isinstance(i, int):
+        #    raise NotImplementedError("item selector must be integer")
+        img_dat, img_lab = self.images[i,:1], self.labels[i]
+        img_dat[img_dat==127] = 0
+        img_dat = torch.tensor(img_dat).to(self.dev)
+        img_lab = torch.tensor(img_lab).to(self.dev)
+        return img_dat, img_lab
+
+
 
 class H5Images:
     def __init__(self, h5name, labels=None):
@@ -302,7 +326,7 @@ def tensorload(images, dev, batchsize=4, start=0,  Nload=None, norm=False, seed=
         if norm:
             imgs /= MX
             imgs -= MN
-        imgs = torch.tensor(imgs[:,:,:512,:512]).to(dev)
+        imgs = torch.tensor(imgs[:,:1,:512,:512]).to(dev)
         labels = torch.tensor(labels).to(dev)
         yield imgs, labels
 
@@ -331,7 +355,7 @@ def validate(input_tens, model, epoch, criterion):
         all_loss.append(loss.item())
 
         errors = (pred-labels).abs()/labels
-        is_accurate = errors < 0.1
+        is_accurate = errors < 20
 
         nacc += is_accurate.all(dim=1).sum().item()
 
@@ -467,7 +491,11 @@ def main():
             losses.append(l)
             all_losses.append(l)
             if i % 10 == 0 and len(losses)> 1:  
+                
                 ave_loss = np.mean(losses)
+                if np.isnan(ave_loss):
+                    from IPython import embed;embed()
+
                 logger.info("Ep:%d, batch:%d, loss:  %.5f (latest acc=%.2f%%, max acc=%.2f%%)" \
                     % (epoch, i, ave_loss, acc, mx_acc))
                 losses = []
