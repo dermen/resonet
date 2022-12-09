@@ -68,7 +68,7 @@ MX=127
 MN=0.04
 DETDIST=200
 WAVELEN=.977794
-PIXSIZE=.6
+PIXSIZE=.3
 IMG_SH=546,518
 Y,X = np.indices(IMG_SH)
 centX, centY = -0.22111771, -0.77670382 
@@ -269,7 +269,7 @@ class H5Images:
         if labels is None:
             labels = "labels"
         self.h5 = h5py.File(h5name, "r")
-        self.images = self.h5["images"]
+        self.images = self.h5["images_nohotpix"]
         self.labels = self.h5[labels]
 
     @property
@@ -479,6 +479,11 @@ def main():
 
         losses = []
         all_losses = []
+
+        if not args.noDisplay:
+            plt.draw()
+            plt.pause(0.01)
+
         for i, (data, labels) in enumerate(train_tens):
 
             optimizer.zero_grad()
@@ -499,9 +504,6 @@ def main():
                 logger.info("Ep:%d, batch:%d, loss:  %.5f (latest acc=%.2f%%, max acc=%.2f%%)" \
                     % (epoch, i, ave_loss, acc, mx_acc))
                 losses = []
-                if not args.noDisplay:
-                    plt.draw()
-                    plt.pause(0.01)
         
         ave_train_loss = np.mean(all_losses)
 
