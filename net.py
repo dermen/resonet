@@ -8,9 +8,9 @@ def get_args():
     parser.add_argument("--lr", type=float, default=0.000125)
     parser.add_argument("--noDisplay", action="store_true")
     parser.add_argument("--bs", type=int,default=16)
-    parser.add_argument("--loss", type=str, choices=["L1", "L2"], default="L1")
+    parser.add_argument("--loss", type=str, choices=["L1", "L2", "BCE", "BCE2"], default="L1")
     parser.add_argument("--saveFreq", type=int, default=10)
-    parser.add_argument("--arch", type=str, choices=["le", "res18", "res50"], 
+    parser.add_argument("--arch", type=str, choices=["le", "res18", "res50" ,"res50bc"],
                         default="res50")
     parser.add_argument("--loglevel", type=str, 
             choices=["debug", "info", "critical"], default="info")
@@ -33,7 +33,6 @@ import h5py
 import numpy as np
 import pandas
 import logging
-from itertools import chain
 from scipy.stats import pearsonr, spearmanr
 from PIL import Image
 import pylab as plt
@@ -43,7 +42,10 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision.models import resnet18, resnet50
 from torch.utils.data import Dataset
-from matplotlib.ticker import FormatStrFormatter
+from torchmetrics.classification import BinaryJaccardIndex
+
+
+from resonet.utils import maxbin
 
 
 def get_logger(filename=None, level="info"):
@@ -79,16 +81,19 @@ QMAP = np.sin(0.5*np.arctan(Rad*PIXSIZE/DETDIST))*2/WAVELEN
 class RESNetBase(nn.Module):
 
     def _set_blocks(self):
-        self.resnet.conv1 = nn.Conv2d(1, 64, 
+        self.resnet.conv1 = nn.Conv2d(self.nout, 64,
             kernel_size=7, stride=2, padding=3,bias=False, device=self.dev)
         self.fc1 = nn.Linear(1000,100, device=self.dev)
         self.fc2 = nn.Linear(100, self.nout, device=self.dev)
+        self.Sigmoid = nn.Sigmoid()
         
     def forward (self, x):
         x = self.resnet(x)
         x = torch.flatten(x, 1)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
+        if self.binary:
+            x = self.Sigmoid(x)
         return x
 
     @property
@@ -111,7 +116,28 @@ class RESNetBase(nn.Module):
     @dev.setter
     @abstractmethod
     def dev(self, val):
-        self._dev = val    
+        self._dev = val
+
+    @property
+    @abstractmethod
+    def binary(self):
+        return self._binary
+
+    @binary.setter
+    @abstractmethod
+    def binary(self, val):
+        self._binary = val
+
+
+
+class RESNet50BC(RESNetBase):
+    def __init__(self, device_id=0, nout=1):
+        super().__init__()
+        self.dev = "cuda:%d" % device_id
+        self.nout = nout
+        self.resnet = resnet18().to(self.dev)
+        self._set_blocks()
+        self.binary = True
 
 
 class RESNet18(RESNetBase):
@@ -120,6 +146,7 @@ class RESNet18(RESNetBase):
         self.dev = "cuda:%d" % device_id
         self.nout = nout
         self.resnet = resnet18().to(self.dev)
+        self.binary = False
         self._set_blocks()
 
 
@@ -129,6 +156,7 @@ class RESNet50(RESNetBase):
         self.dev = "cuda:%d" % device_id
         self.nout = nout
         self.resnet = resnet50().to(self.dev)
+        self.binary = False
         self._set_blocks()
 
 
@@ -138,7 +166,7 @@ class LeNet(nn.Module):
         super().__init__()
         self.dev = "cuda:%d" % device_id
         self.nout = nout
-        self.conv1 = nn.Conv2d(2, 6, 3, device=self.dev)
+        self.conv1 = nn.Conv2d(1, 6, 3, device=self.dev)
         self.conv2 = nn.Conv2d(6, 16, 3, device=self.dev)
         self.conv2_bn = nn.BatchNorm2d(16, device=self.dev)
         self.conv3 = nn.Conv2d(16, 32, 3, device=self.dev)
@@ -170,7 +198,6 @@ class LeNet(nn.Module):
         # FIXME: batchnorm breaks some validation below 
         x = self.fc3(x)
         return x
-
 
 
 class Images:
@@ -240,13 +267,12 @@ class Images:
         mask = np.load(maskname)
         return mask
 
+
 class TorchDset(Dataset):
 
-    def __init__(self, h5name, dev, labels=None):
-        if labels is None:
-            labels = "labels"
+    def __init__(self, h5name, dev, labels="labels", images="images"):
         self.h5 = h5py.File(h5name, "r")
-        self.images = self.h5["images"]
+        self.images = self.h5[images]
         self.labels = self.h5[labels]
         self.dev = dev
 
@@ -254,22 +280,16 @@ class TorchDset(Dataset):
         return self.images.shape[0]
     
     def __getitem__(self, i):
-        #if not isinstance(i, int):
-        #    raise NotImplementedError("item selector must be integer")
-        img_dat, img_lab = self.images[i,:1], self.labels[i]
-        img_dat[img_dat==127] = 0
+        img_dat, img_lab = self.images[i][None], self.labels[i]
         img_dat = torch.tensor(img_dat).to(self.dev)
         img_lab = torch.tensor(img_lab).to(self.dev)
         return img_dat, img_lab
 
 
-
 class H5Images:
-    def __init__(self, h5name, labels=None):
-        if labels is None:
-            labels = "labels"
+    def __init__(self, h5name, labels="labels", images="images"):
         self.h5 = h5py.File(h5name, "r")
-        self.images = self.h5["images_nohotpix"]
+        self.images = self.h5[images]
         self.labels = self.h5[labels]
 
     @property
@@ -289,7 +309,8 @@ class H5Images:
             data, lab= self.images[i], self.labels[i]
         return data, lab
 
-def tensorload(images, dev, batchsize=4, start=0,  Nload=None, norm=False, seed=None):
+
+def tensorload(images, dev, batchsize=4, start=0,  Nload=None, norm=False, seed=None, pixel_radius=None):
     """images is a specialized class with a `total` property, and
     a specialized getitem method (e.g. Images defined above)
     """
@@ -303,7 +324,7 @@ def tensorload(images, dev, batchsize=4, start=0,  Nload=None, norm=False, seed=
     inds = np.arange(start, stop)
     nroll = np.random.randint(0, len(inds))
     nbatch = int(len(inds)/batchsize)
-    batches = np.array_split( np.roll(inds, nroll), nbatch)
+    batches = np.array_split(np.roll(inds, nroll), nbatch)
     batch_order = np.random.permutation(len(batches))
     for i_batch in batch_order:
         batch = batches[i_batch]
@@ -326,10 +347,17 @@ def tensorload(images, dev, batchsize=4, start=0,  Nload=None, norm=False, seed=
         if norm:
             imgs /= MX
             imgs -= MN
-        imgs = torch.tensor(imgs[:,:1,:512,:512]).to(dev)
-        labels = torch.tensor(labels).to(dev)
-        yield imgs, labels
+        if len(imgs.shape)==3:
+            temp = np.zeros((imgs.shape[0], 2, 512,512))
+            temp[:,0] = imgs
+            temp[:,1] = pixel_radius
+            temp = temp.astype(np.float32)
+            imgs = torch.tensor(temp[:,:1]).to(dev)
+        else:
+            imgs = torch.tensor(imgs[:, :1, :512, :512]).to(dev)
 
+        labels = torch.tensor(labels.astype(np.float32)).to(dev)
+        yield imgs, labels
 
 
 def validate(input_tens, model, epoch, criterion):
@@ -338,41 +366,53 @@ def validate(input_tens, model, epoch, criterion):
     TODO make validation multi-channel (e.g. average accuracy over all labels)
     """
     logger = logging.getLogger("resonet")
+    using_bce = str(criterion).startswith("BCE")
 
     total = 0
-    nacc = 0 # number of accurate predictions
+    nacc = 0  # number of accurate predictions
     all_lab = []
     all_pred = []
     all_loss = []
     for i,(data,labels) in enumerate(input_tens):
         print("validation batch %d"% i,end="\r", flush=True)
         pred = model(data)
-        
+
+        loss = criterion(pred, labels)
+        all_loss.append(loss.item())
+
+        if using_bce:
+            pred = torch.round(torch.sigmoid(pred))
+        else:
+            errors = (pred-labels).abs()/labels
+            is_accurate = errors < .3
+            nacc += is_accurate.all(dim=1).sum().item()
+            total += len(labels)
+
         all_lab += [[l.item() for l in labs] for labs in labels]
         all_pred += [[p.item() for p in preds] for preds in pred]
 
-        loss = criterion(labels, pred)
-        all_loss.append(loss.item())
-
-        errors = (pred-labels).abs()/labels
-        is_accurate = errors < 20
-
-        nacc += is_accurate.all(dim=1).sum().item()
-
-        total += len(labels)
-        
-    acc = nacc / total*100.
     all_lab = np.array(all_lab).T
     all_pred = np.array(all_pred).T
-    pears = [pearsonr(L,P)[0] for L,P in zip(all_lab, all_pred)]
-    spears = [spearmanr(L,P)[0] for L,P in zip(all_lab, all_pred)]
-    logger.info("\taccuracy at Ep%d: %.2f%%" \
-        % (epoch, acc))
-    for pear, spear in zip(pears, spears):
-        logger.info("\tpredicted-VS-truth: PearsonR=%.3f%%, SpearmanR=%.3f%%" \
-            % (pear*100, spear*100))
-    ave_loss = np.mean(all_loss)
-    return acc, ave_loss, all_lab, all_pred
+
+    if not using_bce:
+        acc = nacc / total*100.
+        pears = [pearsonr(L,P)[0] for L,P in zip(all_lab, all_pred)]
+        spears = [spearmanr(L,P)[0] for L,P in zip(all_lab, all_pred)]
+        logger.info("\taccuracy at Ep%d: %.2f%%" \
+            % (epoch, acc))
+        for pear, spear in zip(pears, spears):
+            logger.info("\tpredicted-VS-truth: PearsonR=%.3f%%, SpearmanR=%.3f%%" \
+                % (pear*100, spear*100))
+        ave_loss = np.mean(all_loss)
+        return acc, ave_loss, all_lab, all_pred
+    else:
+        acc = np.sum(all_pred == all_lab) / all_pred.shape[-1] * 100
+        ave_loss = np.mean(all_loss)
+        jaccard = BinaryJaccardIndex()(torch.tensor(all_pred), torch.tensor(all_lab))
+        logger.info("\taccuracy at Ep%d: %.2f%%" \
+                    % (epoch, acc))
+        logger.info("\tpredicted-VS-truth: Jaccard=%.3f" % jaccard)
+        return acc, ave_loss, all_lab, all_pred
 
 
 def plot_acc(ax, idx, acc, epoch):
@@ -440,17 +480,25 @@ def main():
     args = get_args()
     
     assert os.path.exists(args.input)
-    imgs = H5Images(args.input, args.labelName) # data loader
-    
+    imgs = H5Images(args.input, args.labelName)  # data loader
+
+    PIX_RAD = None
+    if "pixel_radius_map" in list(imgs.h5.keys()):
+        PIX_RAD = imgs.h5["pixel_radius_map"][()]
+    y,x = maxbin.get_slice_pil()
+    PIX_RAD = maxbin.bin_ndarray(PIX_RAD[y, x], (1024, 1024), "mean")
+    PIX_RAD = maxbin.get_quadA_pil(PIX_RAD)
+
     # model and criterion choices
-    ARCHES = {"le": LeNet, "res18": RESNet18, "res50": RESNet50}
-    LOSSES = {"L1": nn.L1Loss, "L2": nn.MSELoss}
+    ARCHES = {"le": LeNet, "res18": RESNet18, "res50": RESNet50, "res50bc": RESNet50BC}
+    LOSSES = {"L1": nn.L1Loss, "L2": nn.MSELoss, "BCE": nn.BCELoss, "BCE2": nn.BCEWithLogitsLoss}
 
     #instantiate model
     nety = ARCHES[args.arch](nout=imgs.nlab) 
     criterion = LOSSES[args.loss]()
+    #optimizer = optim.Adam(nety.parameters(), lr=args.lr)  # momentum=0.9)
     optimizer = optim.SGD(nety.parameters(), lr=args.lr, momentum=0.9)
-
+    #sched = torch.optim.lr_scheduler.ExponentialLR(optimizer,gamma=0.9)
 
     # setup recordkeeping
     if not os.path.exists(args.outdir):
@@ -475,7 +523,8 @@ def main():
         # <><><><><><><><>
         train_tens = tensorload(imgs, nety.dev, start=2000, 
                             batchsize=args.bs, seed=seeds[epoch], 
-                            Nload=100 if args.quickTest else None)
+                            Nload=100 if args.quickTest else None,
+                            pixel_radius=PIX_RAD)
 
         losses = []
         all_losses = []
@@ -508,8 +557,8 @@ def main():
         ave_train_loss = np.mean(all_losses)
 
         nld = 100 if args.quickTest else 1000
-        test_tens = tensorload(imgs, nety.dev, batchsize=2, start=1000, Nload=nld)
-        train_tens = tensorload(imgs, nety.dev, batchsize=2, start=2000, Nload=nld)
+        test_tens = tensorload(imgs, nety.dev, batchsize=2, start=1000, Nload=nld, pixel_radius=PIX_RAD)
+        train_tens = tensorload(imgs, nety.dev, batchsize=2, start=2000, Nload=nld, pixel_radius=PIX_RAD)
         # <><><><><><><><
         #   Validation
         # <><><><><><><><>
@@ -537,6 +586,7 @@ def main():
         # <><><><><><><><
         #  End Validation
         # <><><><><><><><>
+        #sched.step()
 
         # optional save
         if (epoch+1)%args.saveFreq==0:
@@ -552,7 +602,7 @@ def main():
     save_results_fig(outname,test_lab, test_pred) 
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
 
 #   TODO
