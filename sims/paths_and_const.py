@@ -10,15 +10,16 @@ Some constants and file paths for simulations
 # this file contains the P1 amplitudes used to simulate diffraction
 # these files are slow to read: TODO convert and store in high symmetry and use CCTBX
 # to convert to P1
-P1_FILE = "/data/dermen/sims/pdb_P1_hkls.h5"
-FILE = "/data/dermen/sims/pdb_highSym_hkls.h5"
+
+P1_FILE = "/global/cscratch1/sd/dermen/diffraction_ai_sims_data/pdb_P1_hkls.h5"
+FILE = "/global/cscratch1/sd/dermen/diffraction_ai_sims_data/pdb_highSym_hkls.h5"
 
 
 # these are scattering profiles for random plastics (from James Holton)
-RANDOM_STOLS = glob.glob("/data/dermen/sims/randomstols/*stol")
+RANDOM_STOLS = glob.glob("/global/cscratch1/sd/dermen/diffraction_ai_sims_data/randomstols/*stol")
 # scattering profiles for air and water
-AIR_STOL = "/data/dermen/sims/air.stol"
-WATER_STOL = "/data/dermen/sims/water.stol"
+AIR_STOL = "/global/cscratch1/sd/dermen/diffraction_ai_sims_data/air.stol"
+WATER_STOL = "/global/cscratch1/sd/dermen/diffraction_ai_sims_data/water.stol"
 STOL_MIN = 0.025
 STOL_MAX = 0.35
 STOL_RNG = STOL_MAX-STOL_MIN
@@ -31,7 +32,7 @@ DOMAINSIZE_MM = 5e-5
 VOL = (XTALSIZE_MM / DOMAINSIZE_MM)**2  # scales the diffraction
 
 # these are the PDB folders containing pdb files and P1.hkl files
-RANDOM_PDBS = [d for d in glob.glob("/data/dermen/sims/pdbs/*") if len(os.path.basename(d))==4 and os.path.isdir(d)]
+RANDOM_PDBS = [d for d in glob.glob("/global/cscratch1/sd/dermen/diffraction_ai_sims_data/pdbs/*") if len(os.path.basename(d))==4 and os.path.isdir(d)]
 
 # minimum mosaicity
 MOS_MIN = 0.2

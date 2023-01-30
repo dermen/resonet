@@ -17,6 +17,7 @@ def get_args():
     parser.add_argument("--logfile", type=str, default="train.log")
     parser.add_argument("--quickTest", action="store_true")
     parser.add_argument("--labelName", type=str, default="labels")
+    parser.add_argument("--imgsName", type=str, default="images")
     args = parser.parse_args()
     if hasattr(args, "h") or hasattr(args, "help"):
         parser.print_help()
@@ -41,9 +42,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision.models import resnet18, resnet50
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 from torchmetrics.classification import BinaryJaccardIndex
-
 
 from resonet.utils import maxbin
 
@@ -151,9 +151,12 @@ class RESNet18(RESNetBase):
 
 
 class RESNet50(RESNetBase):
-    def __init__(self, device_id=0, nout=1):
+    def __init__(self, dev=None, device_id=0, nout=1):
         super().__init__()
-        self.dev = "cuda:%d" % device_id
+        if dev is None:
+            self.dev = "cuda:%d" % device_id
+        else:
+            self.dev = dev
         self.nout = nout
         self.resnet = resnet50().to(self.dev)
         self.binary = False
@@ -201,16 +204,19 @@ class LeNet(nn.Module):
 
 
 class Images:
-    def __init__(self, quad="A"):
-        dirname="/global/cfs/cdirs/m3992/png/"  
-        self.fnames = glob.glob(dirname+"*%s.png"%quad)
+    def __init__(self, pngdir=None, propfile=None, quad="A"):
+        if pngdir is None:
+            pngdir = "/global/cfs/cdirs/m3992/png/"
+        if propfile is None:
+            propfile = "/global/cfs/cdirs/m3992/png/num_reso_mos_B_icy1_icy2_cell_SGnum_pdbid_stolid.txt"
+        self.fnames = glob.glob(os.path.join(pngdir,"*%s.png"%quad))
         assert self.fnames
         self.nums = [self.get_num(f) for f in self.fnames]
-        self.img_sh  = 546, 518
+        self.img_sh = 546, 518
         self.props = ["reso"]
 
         self.prop = pandas.read_csv(
-            dirname+"num_reso_mos_B_icy1_icy2_cell_SGnum_pdbid_stolid.txt", 
+            propfile,
             delimiter=r"\s+", 
             names=["num", "reso", "mos", "B", "icy1", "icy2", "cell1", \
                     "cell2", "cell3", "SGnum", "pdbid", "stolid"])
@@ -225,7 +231,6 @@ class Images:
         num = f[s.start(): s.end()].split("sim_")[1]
         return int(num)
      
-
     def __getitem__(self, i):
         if isinstance(i, slice):
             imgs = []
@@ -270,20 +275,43 @@ class Images:
 
 class TorchDset(Dataset):
 
-    def __init__(self, h5name, dev, labels="labels", images="images"):
+    def __init__(self, h5name, dev=None, labels="labels", images="images", start=None, stop=None):
         self.h5 = h5py.File(h5name, "r")
         self.images = self.h5[images]
         self.labels = self.h5[labels]
-        self.dev = dev
+        self.dev = dev  # pytorch device ID
+        if start is None:
+            start = 0
+        if stop is None:
+            stop = self.images.shape[0]
+        assert start >= 0
+        assert stop <= self.images.shape[0]
+        assert stop > start
+        self.start = start
+        self.stop = stop
+
+    @property
+    def dev(self):
+        return self._dev
+
+    @dev.setter
+    def dev(self, val):
+        self._dev = val
 
     def __len__(self):
-        return self.images.shape[0]
+        return self.stop - self.start
+        #return self.images.shape[0]
     
     def __getitem__(self, i):
-        img_dat, img_lab = self.images[i][None], self.labels[i]
+        assert self.dev is not None
+        img_dat, img_lab = self.images[i+self.start][None], self.labels[i+self.start]
         img_dat = torch.tensor(img_dat).to(self.dev)
         img_lab = torch.tensor(img_lab).to(self.dev)
         return img_dat, img_lab
+
+    @property
+    def nlab(self):
+        return self.labels.shape[-1]
 
 
 class H5Images:
@@ -393,6 +421,7 @@ def validate(input_tens, model, epoch, criterion):
 
     all_lab = np.array(all_lab).T
     all_pred = np.array(all_pred).T
+    print("\n")
 
     if not using_bce:
         acc = nacc / total*100.
@@ -447,8 +476,9 @@ def set_ylims(ax):
                 max([max(axl.get_data()[1]) for axl in ax.lines])*1.03)
 
 
-def setup_subplots():
+def setup_subplots(title=""):
     fig, (ax0, ax1) = plt.subplots(nrows=2, ncols=1, figsize=(6.5,5.5))
+    plt.suptitle(title)
     ms=8  # markersize
     ax0.tick_params(labelsize=12)
     ax1.tick_params(labelsize=12)
@@ -480,13 +510,19 @@ def main():
     args = get_args()
     
     assert os.path.exists(args.input)
-    imgs = H5Images(args.input, args.labelName)  # data loader
+    #imgs = H5Images(args.input, args.labelName)  # data loader
+    train_imgs = TorchDset(args.input,  labels=args.labelName, images=args.imgsName,
+                           start=2000, stop=2100 if args.quickTest else 10000)
+    train_imgs_validate = TorchDset(args.input, labels=args.labelName, images=args.imgsName, start=2000,
+                                    stop=2100 if args.quickTest else 3000)
+    test_imgs = TorchDset(args.input, labels=args.labelName, images=args.imgsName,
+                          start=1000,stop=1100 if args.quickTest else 2000)
 
     PIX_RAD = None
-    if "pixel_radius_map" in list(imgs.h5.keys()):
-        PIX_RAD = imgs.h5["pixel_radius_map"][()]
+    if "pixel_radius_map" in list(train_imgs.h5.keys()):
+        PIX_RAD = train_imgs.h5["pixel_radius_map"][()]
     y,x = maxbin.get_slice_pil()
-    PIX_RAD = maxbin.bin_ndarray(PIX_RAD[y, x], (1024, 1024), "mean")
+    #PIX_RAD = maxbin.bin_ndarray(PIX_RAD[y, x], (1024, 1024), "mean")
     PIX_RAD = maxbin.get_quadA_pil(PIX_RAD)
 
     # model and criterion choices
@@ -494,11 +530,13 @@ def main():
     LOSSES = {"L1": nn.L1Loss, "L2": nn.MSELoss, "BCE": nn.BCELoss, "BCE2": nn.BCEWithLogitsLoss}
 
     #instantiate model
-    nety = ARCHES[args.arch](nout=imgs.nlab) 
+    nety = ARCHES[args.arch](nout=train_imgs.nlab)
     criterion = LOSSES[args.loss]()
     #optimizer = optim.Adam(nety.parameters(), lr=args.lr)  # momentum=0.9)
     optimizer = optim.SGD(nety.parameters(), lr=args.lr, momentum=0.9)
     #sched = torch.optim.lr_scheduler.ExponentialLR(optimizer,gamma=0.9)
+    for imgs in (train_imgs, train_imgs_validate, test_imgs):
+        imgs.dev = nety.dev
 
     # setup recordkeeping
     if not os.path.exists(args.outdir):
@@ -510,21 +548,26 @@ def main():
     logger.critical(cmdline)
 
     # optional plots
-    fig, (ax0, ax1) = setup_subplots()
+    fig, (ax0, ax1) = setup_subplots(args.input)
 
     nety.train()
     acc = 0
     mx_acc = 0
     seeds = np.random.choice(9999999, args.ep, replace=False)
+
+    train_tens = DataLoader(train_imgs, batch_size=args.bs, shuffle=True)
+    train_tens_validate = DataLoader(train_imgs_validate, batch_size=2, shuffle=True)
+    test_tens = DataLoader(test_imgs, batch_size=2, shuffle=True)
+
     for epoch in range(args.ep):
 
         # <><><><><><><><
         #    Trainings 
         # <><><><><><><><>
-        train_tens = tensorload(imgs, nety.dev, start=2000, 
-                            batchsize=args.bs, seed=seeds[epoch], 
-                            Nload=100 if args.quickTest else None,
-                            pixel_radius=PIX_RAD)
+        #train_tens = tensorload(imgs, nety.dev, start=2000,
+        #                    batchsize=args.bs, seed=seeds[epoch],
+        #                    Nload=100 if args.quickTest else None,
+        #                    pixel_radius=PIX_RAD)
 
         losses = []
         all_losses = []
@@ -556,9 +599,9 @@ def main():
         
         ave_train_loss = np.mean(all_losses)
 
-        nld = 100 if args.quickTest else 1000
-        test_tens = tensorload(imgs, nety.dev, batchsize=2, start=1000, Nload=nld, pixel_radius=PIX_RAD)
-        train_tens = tensorload(imgs, nety.dev, batchsize=2, start=2000, Nload=nld, pixel_radius=PIX_RAD)
+        #nld = 100 if args.quickTest else 1000
+        #test_tens = tensorload(imgs, nety.dev, batchsize=2, start=1000, Nload=nld, pixel_radius=PIX_RAD)
+        #train_tens = tensorload(imgs, nety.dev, batchsize=2, start=2000, Nload=nld, pixel_radius=PIX_RAD)
         # <><><><><><><><
         #   Validation
         # <><><><><><><><>
@@ -567,7 +610,7 @@ def main():
             logger.info("Computing test accuracy:")
             acc,test_loss, test_lab, test_pred = validate(test_tens, nety, epoch, criterion)
             logger.info("Computing train accuracy:")
-            train_acc,train_loss,_,_ = validate(train_tens, nety, epoch, criterion)
+            train_acc,train_loss,_,_ = validate(train_tens_validate, nety, epoch, criterion)
 
             mx_acc = max(acc, mx_acc)
             

@@ -40,7 +40,7 @@ def choose_mos():
 
 def choose_stol():
     # choose a random plastic scattering profile
-    stol,Fbg =  np.loadtxt(np.random.choice(paths_and_const.RANDOM_STOLS)).T
+    stol, Fbg = np.loadtxt(np.random.choice(paths_and_const.RANDOM_STOLS)).T
     flex.vec2_double(list(zip(Fbg, stol)))
     return flex.vec2_double( Fbg, stol)
 
@@ -98,7 +98,7 @@ def get_Bfac_img(STOL):
     B, stol, factor = get_deltaB_factor()
     I = interp1d(stol, factor)
     Bfac_img = I(STOL.ravel()).reshape(STOL.shape)
-    reso = np.sqrt(.25*(B + 10 - 12))  # TODO check!
+    reso = np.sqrt(.25*(B + 10 - 12))
     return reso, Bfac_img
 
 
@@ -161,7 +161,7 @@ def get_theta_map(detector, beam):
         QZ = (SZ - unit_s0[2]) / beam.get_wavelength()
         Qmags[pid] = np.sqrt(QX**2 + QY**2 + QZ**2)
 
-    Qmags = Qmags[0] # only working with single panel dets
+    Qmags = Qmags[0]  # only working with single panel dets
     STOL = Qmags/2
     return STOL
 

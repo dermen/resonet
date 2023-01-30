@@ -29,13 +29,23 @@ Layouts = {}
 for key, shape in shapes.items():
     Layouts[key] = h5py.VirtualLayout(shape=(total_imgs,) + shape, dtype=dummie_h[key].dtype)
 
+Layouts["twoChannel"] = h5py.VirtualLayout(shape=(total_imgs, 2) + shapes['images'], dtype=dummie_h['images'].dtype)
+
 start = 0
 for i_f, f in enumerate(fnames):
     print("virtualizing file %d / %d" % (i_f+1, len(fnames)))
     nimg = imgs_per_fname[i_f]
     for key in Layouts:
+        if key=="twoChannel":
+            continue
         vsource = h5py.VirtualSource(f, key, shape=(nimg,) + shapes[key])
         Layouts[key][start:start+nimg] = vsource
+
+    res_map_source = h5py.VirtualSource(f, "pixel_radius_map", shape=shapes["images"])
+    im_source = h5py.VirtualSource(f, "images", shape=(nimg,) + shapes["images"])
+    Layouts["twoChannel"][start:start+nimg, 0] = im_source
+    for i_img in range(nimg):
+        Layouts["twoChannel"][start+i_img, 1] = res_map_source
     start += nimg
 
 master_name = os.path.join(dirname, "master.h5")

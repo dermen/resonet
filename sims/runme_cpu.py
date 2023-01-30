@@ -1,24 +1,26 @@
-
 from libtbx.mpi4py import MPI
 COMM = MPI.COMM_WORLD
+
+import os
+import sys
 import glob
 import h5py
-import dxtbx
 import numpy as np
-from simtbx.diffBragg import utils
-from scipy.spatial.transform import Rotation
 import time
-import make_crystal
+from scipy.spatial.transform import Rotation
+
+import dxtbx
+from simtbx.diffBragg import utils
 from simtbx.nanoBragg import sim_data
 from dials.array_family import flex
+from resonet.sims import make_crystal, make_sims, paths_and_const
 
-# load a detector and beam model
-import make_sims
-import paths_and_const
-import sys
-
-seed = int(sys.argv[1])
-
+seeds = None
+if COMM.rank == 0:
+    np.random.seed(int(sys.argv[1]))
+    seeds = np.random.permutation(999999)[:COMM.size]
+seeds = COMM.bcast(seeds)
+seed = seeds[COMM.rank]
 np.random.seed(seed)
 
 
@@ -27,7 +29,6 @@ class Simulator:
     def __init__(self, DET, BEAM):
         self.DET = DET
         self.BEAM = BEAM
-        print("sim bg")
         # air and water background:
         self.air_and_water = make_sims.get_background(self.DET, self.BEAM)
         # stol of every pixel:
@@ -46,8 +47,8 @@ class Simulator:
         pdb_name = make_sims.choose_pdb()
         C = make_crystal.load_crystal(pdb_name, rot_mat, use_p1=False)
         mos_spread, mos_dom = make_sims.choose_mos()
-        print("Simulating for %s" % pdb_name)
-        print(mos_spread, mos_dom)
+        #print("Simulating for %s" % pdb_name)
+        #print(mos_spread, mos_dom)
         C.mos_spread_deg = mos_spread
         n_mos = mos_dom//2
         if n_mos % 2 == 1:
@@ -62,7 +63,7 @@ class Simulator:
 
         #S.D.show_params()
 
-        print("sim spots!")
+        #print("sim spots!")
         S.D.add_nanoBragg_spots_cuda()
         spots = S.D.raw_pixels.as_numpy_array()
         use_multi = np.random.random() < multi_lattice_chance
@@ -76,7 +77,7 @@ class Simulator:
             nominal_crystal = S.crystal.dxtbx_crystal
             Umat = np.reshape(nominal_crystal.get_U(), (3, 3))
             for i_p, perturb in enumerate(rot_mats):
-                print("additional multi lattice sim %d" % (i_p+1))
+                #print("additional multi lattice sim %d" % (i_p+1))
                 Umat_p = np.dot(perturb, Umat)
                 nominal_crystal.set_U(tuple(Umat_p.ravel()))
                 S.D.Amatrix = sim_data.Amatrix_dials2nanoBragg(nominal_crystal)
@@ -86,7 +87,7 @@ class Simulator:
                 spots += S.D.raw_pixels.as_numpy_array()
             spots /= (num_lat+1)
 
-        print("sim random bg")
+        #print("sim random bg")
         plastic_stol = np.random.choice(paths_and_const.RANDOM_STOLS)
         plastic = make_sims.random_bg(self.DET, self.BEAM, plastic_stol)
 
@@ -105,13 +106,32 @@ class Simulator:
                       "ang_sigma": ang_sigma,
                       "num_lat": num_lat}
 
+        S.D.free_all()
+
         return param_dict, noise_img
 
 
-if __name__ == "__main__":
-    from sx.diffraction_ai import eval_model
+def reso2radius(reso, DET, BEAM):
+    """
 
-    fnames = glob.glob("/mnt/data/s2/blstaff/SOLTIS/AI_PREDICTION/3.15A/*cbf")
+    :param reso: resolution of a position on camera in Angstrom
+    :param DET: dxtbx detector model
+    :param BEAM: dxtbx beam model
+    :return: the resolution converted to pixel radii (distance from beam center)
+    """
+    wavelen = BEAM.get_wavelength()
+    detdist = abs(DET[0].get_origin()[2])  # approximate for tilted cameras!
+    pixsize = DET[0].get_pixel_size()[0]  # assumes square pixel
+
+    theta = np.arcsin(wavelen/2/reso)
+    rad = np.tan(2*theta) * detdist/pixsize
+    return rad
+
+
+if __name__ == "__main__":
+    from resonet.utils import eval_model
+
+    fnames = glob.glob("geoms/5.40A/*cbf")
     loader = dxtbx.load(fnames[0])
     D = loader.get_detector()
     D0 = utils.set_detector_thickness(D)
@@ -119,12 +139,25 @@ if __name__ == "__main__":
     mask = loader.get_raw_data().as_numpy_array() >= 0
 
     HS = Simulator(D0, BEAM)
-    Nshot = 15
-    multi_lattice = 2,.01
+
+    detdist = abs(D0[0].get_origin()[2])
+    pixsize = D0[0].get_pixel_size()[0]
+    PIX_RADIUS_MAP = np.tan(2 * np.arcsin(HS.STOL * BEAM.get_wavelength())) * detdist / pixsize
+
+    Nshot_tot = 20000
+    Nshot = len(np.array_split(np.arange(Nshot_tot), COMM.size)[COMM.rank])
+    multi_lattice = 2, .01
     multi_lattice = None
     all_param = []
 
-    with h5py.File("tester_rank%d_multLats.h5" % COMM.rank, "w") as out:
+    outdir = sys.argv[2]
+    if COMM.rank == 0:
+        if not os.path.exists(outdir):
+            os.makedirs(outdir)
+    COMM.barrier()
+    outname = os.path.join(outdir, "rank%d.h5" %COMM.rank)
+    with h5py.File(outname, "w") as out:
+        out.create_dataset("pixel_radius_map", data=PIX_RADIUS_MAP)
         out.create_dataset("mask", data=mask)
         dset = out.create_dataset("images",
                                   shape=(Nshot,) + (512,512),
@@ -134,23 +167,25 @@ if __name__ == "__main__":
                                   shape=(Nshot,) + tuple(mask.shape),
                                   dtype=np.float32)
 
-
         rotMats = Rotation.random(Nshot).as_matrix()
         times = []
         for i_shot in range(Nshot):
-            if i_shot % COMM.size != COMM.rank :
-                continue
+            #if i_shot % COMM.size != COMM.rank :
+            #    continue
             t = time.time()
             params, img = HS.simulate(rot_mat=rotMats[i_shot],
-                                      ang_sigma=0.1,
-                                      multi_lattice_chance=1)
+                                      ang_sigma=.1,
+                                      multi_lattice_chance=0)
+            radius = reso2radius(params["reso"], D0, BEAM)
             all_param.append(
-                [params["reso"], params["multi_lattice"]])
+                [radius, params["multi_lattice"]])
             quad = eval_model.raw_img_to_tens_pil(img, mask)
             raw_dset[i_shot] = img
             dset[i_shot] = quad
             t = time.time()-t
             times.append(t)
-            print("Done with shot %d / %d (took %.4f sec)" % (i_shot+1, Nshot, t))
+            if COMM.rank==0:
+                print("Done with shot %d / %d (took %.4f sec)" % (i_shot+1, Nshot, t), flush=True)
         out.create_dataset("labels", data=all_param)
-        print("Done! Takes %.4f sec on average per image" % np.mean(times))
+        if COMM.rank == 0:
+            print("Done! Takes %.4f sec on average per image" % np.mean(times))
