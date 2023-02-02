@@ -131,9 +131,10 @@ class RESNetBase(nn.Module):
 
 
 class RESNet50BC(RESNetBase):
-    def __init__(self, device_id=0, nout=1):
+    def __init__(self, dev=None, nout=1):
         super().__init__()
-        self.dev = "cuda:%d" % device_id
+        if dev is None:
+            self.dev = "cuda:0"
         self.nout = nout
         self.resnet = resnet18().to(self.dev)
         self._set_blocks()

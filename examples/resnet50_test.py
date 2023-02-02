@@ -19,10 +19,10 @@ propfile = "/global/cfs/cdirs/m3992/png/num_reso_mos_B_icy1_icy2_cell_SGnum_pdbi
 # validate on first 1k training images
 # test on images 8k-9k (we will tune hyper parameters like learning rate to predict these images well)
 # secondary test set will be from 9k+ (these test how generalizable our hyper parameter tuning is)
-
-train_imgs = PngDset(start=0, stop=8000)
-train_imgs_validate = PngDset(start=0, stop=1000)
-test_imgs = PngDset(start=8000, stop=9000)
+dev = "cuda:0"
+train_imgs = PngDset(start=0, stop=8000, dev=dev)
+train_imgs_validate = PngDset(start=0, stop=1000, dev=dev)
+test_imgs = PngDset(start=8000, stop=9000, dev=dev)
 
 train_tens = DataLoader(train_imgs, batch_size=16, shuffle=True)
 train_tens_validate = DataLoader(train_imgs_validate, batch_size=16, shuffle=False)
@@ -30,13 +30,9 @@ test_tens = DataLoader(test_imgs, batch_size=16, shuffle=False)
 
 
 # instantiate model
-nety = RESNet50(nout=1)
+nety = RESNet50(nout=1, dev=dev)
 criterion = nn.L1Loss()
 optimizer = optim.SGD(nety.parameters(), lr=1e-3, momentum=0.9)
-
-# sync the device
-for imgs in (train_imgs, train_imgs_validate, test_imgs):
-    imgs.dev = nety.dev
 
 
 def validate(input_tens, model, epoch, criterion):
