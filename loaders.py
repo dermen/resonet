@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 
 
-class TorchDset(Dataset):
+class PngDset(Dataset):
 
     def __init__(self, pngdir=None, propfile=None, quad="A", start=None, stop=None,
                  dev=None, invert_res=True):
@@ -33,9 +33,10 @@ class TorchDset(Dataset):
             names=["num", "reso", "mos", "B", "icy1", "icy2", "cell1", \
                    "cell2", "cell3", "SGnum", "pdbid", "stolid"])
 
-        self.labels = self.prop[["num", "reso"]]
         if invert_res:
-            self.labels.reso = 1/self.labels.reso
+            self.prop.loc[:,"reso"] = 1/self.prop.reso
+
+        self.labels = self.prop[["num", "reso"]]
 
         self.dev = dev  # pytorch device ID
 
@@ -74,21 +75,22 @@ class TorchDset(Dataset):
         img_dat = np.reshape(img.getdata(), self.img_sh).astype(np.float32)
 
         num = self.nums[i]
-        img_lab = self.labels.query("num==%d" % num)
+        img_lab = self.labels.query("num==%d" % num).reso
 
-        img_dat = torch.tensor(img_dat[None]).to(self.dev)
+        img_dat = torch.tensor(img_dat[:512,:512][None]).to(self.dev)
         img_lab = torch.tensor(img_lab.values).to(self.dev)
         return img_dat, img_lab
 
 
 if __name__=="__main__":
 
-    train_imgs = TorchDset(start=2000, stop=9000)
-    train_imgs_validate = TorchDset(start=2000, stop=3000)
-    test_imgs = TorchDset(start=1000, stop=2000)
+    train_imgs = PngDset(start=2000, stop=9000)
+    train_imgs_validate = PngDset(start=2000, stop=3000)
+    test_imgs = PngDset(start=1000, stop=2000)
 
     train_tens = DataLoader(train_imgs, batch_size=16, shuffle=True)
     train_tens_validate = DataLoader(train_imgs_validate, batch_size=16, shuffle=True)
     test_tens = DataLoader(test_imgs, batch_size=16, shuffle=True)
 
-    from IPython import embed;embed()
+    imgs, labs = next(iter(train_tens))
+    print(imgs.shape, labs.shape)

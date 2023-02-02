@@ -29,7 +29,7 @@ with h5py.File(args.output, "w") as h:
     start = 0
     while start < imgs.total:
         I, L = imgs[start:start+100]
-        dset[start:start+I.shape[0]] = I
+        dset[start:start+I.shape[0]] = I[:,:1]
         dset_lab[start:start+I.shape[0]] = 1/L
         start += 100
-        print(start)
+        print("Copied %d /%d"%(start, imgs.total))
