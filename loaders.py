@@ -71,10 +71,10 @@ class PngDset(Dataset):
     def __getitem__(self, i):
         assert self.dev is not None, "Set the dev (torch device) property first!"
 
-        img = Image.open(self.fnames[i])
+        img = Image.open(self.fnames[i+self.start])
         img_dat = np.reshape(img.getdata(), self.img_sh).astype(np.float32)
 
-        num = self.nums[i]
+        num = self.nums[i+self.start]
         img_lab = self.labels.query("num==%d" % num).reso
 
         img_dat = torch.tensor(img_dat[:512,:512][None]).to(self.dev)

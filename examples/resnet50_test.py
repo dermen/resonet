@@ -11,8 +11,8 @@ import torch.nn as nn
 import torch.optim as optim
 
 
-pngdir = "/global/cfs/cdirs/m3992/png/"
-propfile = "/global/cfs/cdirs/m3992/png/num_reso_mos_B_icy1_icy2_cell_SGnum_pdbid_stolid.txt"
+pngdir = "/home/rstofer/dials_project/png"
+propfile = "/home/rstofer/dials_project/Downloads/num_reso_mos_B_icy1_icy2_cell_SGnum_pdbid_stolid.txt"
 
 # breakdown of images
 # first 8k images for training
@@ -20,9 +20,9 @@ propfile = "/global/cfs/cdirs/m3992/png/num_reso_mos_B_icy1_icy2_cell_SGnum_pdbi
 # test on images 8k-9k (we will tune hyper parameters like learning rate to predict these images well)
 # secondary test set will be from 9k+ (these test how generalizable our hyper parameter tuning is)
 dev = "cuda:0"
-train_imgs = PngDset(start=0, stop=8000, dev=dev)
-train_imgs_validate = PngDset(start=0, stop=1000, dev=dev)
-test_imgs = PngDset(start=8000, stop=9000, dev=dev)
+train_imgs = PngDset(pngdir=pngdir, propfile=propfile, start=0, stop=8000, dev=dev)
+train_imgs_validate = PngDset(pngdir=pngdir, propfile=propfile, start=0, stop=1000, dev=dev)
+test_imgs = PngDset(pngdir=pngdir, propfile=propfile, start=8000, stop=9000, dev=dev)
 
 train_tens = DataLoader(train_imgs, batch_size=16, shuffle=True)
 train_tens_validate = DataLoader(train_imgs_validate, batch_size=16, shuffle=False)
