@@ -1,7 +1,8 @@
 
+import numpy as np
+
 from iotbx import pdb
 from dxtbx.model import CrystalFactory
-import numpy as np
 
 
 class PDB:

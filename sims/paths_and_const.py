@@ -11,28 +11,31 @@ Some constants and file paths for simulations
 # these files are slow to read: TODO convert and store in high symmetry and use CCTBX
 # to convert to P1
 
-P1_FILE = "/global/cscratch1/sd/dermen/diffraction_ai_sims_data/pdb_P1_hkls.h5"
-FILE = "/global/cscratch1/sd/dermen/diffraction_ai_sims_data/pdb_highSym_hkls.h5"
+dirname = "/data/dermen/sims/"
+P1_FILE = os.path.join(dirname, "pdb_P1_hkls.h5")
+FILE = os.path.join(dirname, "pdb_highSym_hkls.h5")
 
 
 # these are scattering profiles for random plastics (from James Holton)
-RANDOM_STOLS = glob.glob("/global/cscratch1/sd/dermen/diffraction_ai_sims_data/randomstols/*stol")
+RANDOM_STOLS = glob.glob(os.path.join(dirname, "randomstols/*stol"))
 # scattering profiles for air and water
-AIR_STOL = "/global/cscratch1/sd/dermen/diffraction_ai_sims_data/air.stol"
-WATER_STOL = "/global/cscratch1/sd/dermen/diffraction_ai_sims_data/water.stol"
+AIR_STOL = os.path.join(dirname, "air.stol")
+WATER_STOL = os.path.join(dirname, "water.stol")
 STOL_MIN = 0.025
 STOL_MAX = 0.35
 STOL_RNG = STOL_MAX-STOL_MIN
 
 BEAM_SIZE_MM = 0.03
-FLUX = 1e12  # photons per pulse
+FLUX = 4e11  # photons per pulse
 DIVERGENCE_MRAD = 0.02
 XTALSIZE_MM = 0.025
 DOMAINSIZE_MM = 5e-5
-VOL = (XTALSIZE_MM / DOMAINSIZE_MM)**2  # scales the diffraction
+VOL = (XTALSIZE_MM / DOMAINSIZE_MM)**3  # scales the diffraction
+FIX_RES = None # 0.5/.29989  # optionally fix the resolution for all simulations ...
+
 
 # these are the PDB folders containing pdb files and P1.hkl files
-RANDOM_PDBS = [d for d in glob.glob("/global/cscratch1/sd/dermen/diffraction_ai_sims_data/pdbs/*") if len(os.path.basename(d))==4 and os.path.isdir(d)]
+RANDOM_PDBS = [d for d in glob.glob(os.path.join(dirname, "pdbs/*")) if len(os.path.basename(d))==4 and os.path.isdir(d)]
 
 # minimum mosaicity
 MOS_MIN = 0.2

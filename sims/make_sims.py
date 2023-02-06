@@ -1,20 +1,24 @@
 # coding: utf-8
 import glob
-import make_crystal
-from simtbx.nanoBragg import nanoBragg_crystal, nanoBragg_beam, sim_data
-import dxtbx
-from dials.array_family import flex
+import numpy as np
 from scipy.interpolate import interp1d
 
+import dxtbx
+from dials.array_family import flex
 from simtbx.diffBragg import utils
 from simtbx.nanoBragg import utils as nb_utils
-import paths_and_const
-import numpy as np
+from simtbx.nanoBragg import nanoBragg_crystal, nanoBragg_beam, sim_data
+
+
+from resonet.sims import paths_and_const
+from resonet.sims import make_crystal
 
 
 def choose_res():
     """ choose a random resolution"""
-    return 0.5/(paths_and_const.STOL_MIN + np.random.random()*paths_and_const.STOL_RNG)
+    if paths_and_const.FIX_RES is not None:
+        return paths_and_const.FIX_RES
+    res = 0.5/(paths_and_const.STOL_MIN + np.random.random()*paths_and_const.STOL_RNG)
     return res
 
 
@@ -96,7 +100,7 @@ def get_Bfac_img(STOL):
     :return: delta-Bfactor at every pixel (for aadjusting the spot resolution)
     """
     B, stol, factor = get_deltaB_factor()
-    I = interp1d(stol, factor)
+    I = interp1d(stol, factor, bounds_error=False, fill_value=0)
     Bfac_img = I(STOL.ravel()).reshape(STOL.shape)
     reso = np.sqrt(.25*(B + 10 - 12))
     return reso, Bfac_img

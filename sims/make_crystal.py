@@ -1,12 +1,16 @@
 
 import os
-import process_pdb
+import h5py
+import numpy as np
+
 from cctbx.array_family import flex
 from cctbx import miller, crystal
 from simtbx.nanoBragg import nanoBragg_crystal, nanoBragg_beam
-import numpy as np
-import paths_and_const
-import h5py
+from iotbx.reflection_file_reader import any_reflection_file
+
+
+from resonet.sims import paths_and_const
+from resonet.sims import  process_pdb
 
 
 def convert_inds(amps, hkls, pdb_file, d_min=1.2):
@@ -82,14 +86,13 @@ def get_Nabc(ucell):
     return Na, Nb, Nc
 
 
-def load_crystal(folder, rot_mat=None, use_p1=False):
+def load_crystal(folder, rot_mat=None, d_min=1.2):
     """
 
     :param folder:  pdb folder, e.g. /data/dermen/sims/pdbs/2itu
         each folder basename 2itu should also exist in the paths_and_const.P1_FILE hdf5 file if reading from hdf5
         If not, the files ./pdbs/2itu/2itu.pdb are and ./pdbs/2itu/P1.hkl are expected to exist
     :param rot_mat: rotation matrix of crystal (otherwise it will be aligned in the standard PDB convention)
-    :param use_p1: boolean to use p1 space group
     :return:
     """
     C = nanoBragg_crystal.NBcrystal(init_defaults=False)
@@ -97,18 +100,17 @@ def load_crystal(folder, rot_mat=None, use_p1=False):
     pdb_base = os.path.basename(folder)
     P = process_pdb.PDB(folder + '/%s.pdb' % pdb_base)
     C.dxtbx_crystal = P.p1_dxtbx_crystal
-    C.xtal_shape = "tophat"
+    C.xtal_shape = "square" #"tophat"
     if rot_mat is not None:
         Umat = C.dxtbx_crystal.get_U()
         Umat = np.dot(rot_mat, np.reshape(Umat,(3,3)))
         C.dxtbx_crystal.set_U(tuple(Umat.ravel()))
     C.Ncells_abc = get_Nabc(P.p1_ucell)
-    if use_p1:
-        ma = load_amps(folder + "/P1.hkl", P.p1_ucell, sg="P1")
-    else:
-        ma = load_amps(folder + "/P1.hkl", P.ucell, sg=P.symbol)
+    fmodel_file = os.path.join(folder, "fmodel.mtz")
+    ma = any_reflection_file(fmodel_file).as_miller_arrays()[0].as_amplitude_array()
+    ma = ma.resolution_filter(d_min=d_min)
     C.miller_array = ma
-    C.symbol = "P1" if use_p1 else P.symbol 
+    C.symbol = ma.space_group_info().type().lookup_symbol()
     return C
 
 def load_beam(dxtbx_beam, divergence=0):
@@ -119,8 +121,10 @@ def load_beam(dxtbx_beam, divergence=0):
     :return: return a nanoBragg_beam.NBbeam object
     """
     B = nanoBragg_beam.NBbeam()
+    B.size_mm = paths_and_const.BEAM_SIZE_MM
     B.unit_s0 = dxtbx_beam.get_unit_s0()
-    B.flux = 1e12
+    B.spectrum = [(dxtbx_beam.get_wavelength(), paths_and_const.FLUX)]
+    B.flux = paths_and_const.FLUX
     B.divergence = divergence
     return B
 

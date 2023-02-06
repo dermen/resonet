@@ -3,10 +3,10 @@ import sys
 import numpy as np
 
 from resonet.utils import maxbin
-from resonet import net
 
 try:
     import torch
+    from resonet import net
 except ImportError:
     pass
 
