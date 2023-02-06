@@ -24,7 +24,7 @@ class Simulator:
                                       divergence=paths_and_const.DIVERGENCE_MRAD / 1e3 * 180 / np.pi)
 
     def simulate(self, rot_mat=None, multi_lattice_chance=0, ang_sigma=0.01, num_lat=2, mos_tuple=None,
-                 pdb_name=None, plastic_stol=None):
+                 pdb_name=None, plastic_stol=None, dev=0):
         """
 
         :param rot_mat:
@@ -34,6 +34,7 @@ class Simulator:
         :param mos_tuple:
         :param pdb_name:
         :param plastic_stol:
+        :param dev: device id
         :return:
         """
         if pdb_name is None:
@@ -60,6 +61,7 @@ class Simulator:
 
         #S.D.show_params()
 
+        S.D.device_Id = dev
         S.D.add_nanoBragg_spots_cuda()
         spots = S.D.raw_pixels.as_numpy_array()
         use_multi = np.random.random() < multi_lattice_chance

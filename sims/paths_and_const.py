@@ -11,7 +11,7 @@ Some constants and file paths for simulations
 # these files are slow to read: TODO convert and store in high symmetry and use CCTBX
 # to convert to P1
 
-dirname = "/data/dermen/sims/"
+dirname = os.environ.get("RESONET_SIMDATA")
 P1_FILE = os.path.join(dirname, "pdb_P1_hkls.h5")
 FILE = os.path.join(dirname, "pdb_highSym_hkls.h5")
 
