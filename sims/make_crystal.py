@@ -86,7 +86,7 @@ def get_Nabc(ucell):
     return Na, Nb, Nc
 
 
-def load_crystal(folder, rot_mat=None, d_min=1.2):
+def load_crystal(folder, rot_mat=None):
     """
 
     :param folder:  pdb folder, e.g. /data/dermen/sims/pdbs/2itu
@@ -106,9 +106,8 @@ def load_crystal(folder, rot_mat=None, d_min=1.2):
         Umat = np.dot(rot_mat, np.reshape(Umat,(3,3)))
         C.dxtbx_crystal.set_U(tuple(Umat.ravel()))
     C.Ncells_abc = get_Nabc(P.p1_ucell)
-    fmodel_file = os.path.join(folder, "fmodel.mtz")
-    ma = any_reflection_file(fmodel_file).as_miller_arrays()[0].as_amplitude_array()
-    ma = ma.resolution_filter(d_min=d_min)
+    fmodel_file = os.path.join(folder, "fmodel_1p2.mtz")
+    ma = any_reflection_file(fmodel_file).as_miller_arrays()[0]
     C.miller_array = ma
     C.symbol = ma.space_group_info().type().lookup_symbol()
     return C
