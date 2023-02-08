@@ -15,13 +15,13 @@ assert os.path.exists(args.pngdir)
 assert os.path.exists(args.propfile)
 assert os.path.isdir(args.pngdir)
 
-from resonet import net
+from resonet.old_loaders import Images
 
 if os.path.exists(args.output) and not args.overwrite:
     print("file %s exists!, use the --overwrite flag" % args.output)
 
 with h5py.File(args.output, "w") as h:
-    imgs = net.Images(pngdir=args.pngdir, propfile=args.propfile)
+    imgs = Images(pngdir=args.pngdir, propfile=args.propfile)
     imgs.props = ["reso"]
     dset = h.create_dataset('images', dtype=np.float32, shape=(imgs.total, 1, 512, 512))
     dset_lab = h.create_dataset('labels', dtype=np.float32, shape=(imgs.total,len(imgs.props)))
