@@ -1,23 +1,25 @@
 from argparse import ArgumentParser
+from argparse import ArgumentDefaultsHelpFormatter as arg_formatter
+
 
 def get_args():
-    parser = ArgumentParser()
-    parser.add_argument("ep", type=int)
-    parser.add_argument("input", type=str)
-    parser.add_argument("outdir", type=str)
-    parser.add_argument("--lr", type=float, default=0.000125)
-    parser.add_argument("--noDisplay", action="store_true")
-    parser.add_argument("--bs", type=int,default=16)
-    parser.add_argument("--loss", type=str, choices=["L1", "L2", "BCE", "BCE2"], default="L1")
-    parser.add_argument("--saveFreq", type=int, default=10)
+    parser = ArgumentParser(formatter_class=arg_formatter)
+    parser.add_argument("ep", type=int, help="number of epochs")
+    parser.add_argument("input", type=str, help="input training data h5 file")
+    parser.add_argument("outdir", type=str, help="store output files here (will create if necessary)")
+    parser.add_argument("--lr", type=float, default=0.000125, help="learning rate (important!)")
+    parser.add_argument("--noDisplay", action="store_true", help="dont shot plots")
+    parser.add_argument("--bs", type=int,default=16, help="batch size")
+    parser.add_argument("--loss", type=str, choices=["L1", "L2", "BCE", "BCE2"], default="L1", help="loss function selector")
+    parser.add_argument("--saveFreq", type=int, default=10, help="how often to write the model to disk")
     parser.add_argument("--arch", type=str, choices=["le", "res18", "res50" ,"res50bc"],
-                        default="res50")
+                        default="res50", help="architecture selector")
     parser.add_argument("--loglevel", type=str, 
-            choices=["debug", "info", "critical"], default="info")
-    parser.add_argument("--logfile", type=str, default="train.log")
-    parser.add_argument("--quickTest", action="store_true")
-    parser.add_argument("--labelName", type=str, default="labels")
-    parser.add_argument("--imgsName", type=str, default="images")
+            choices=["debug", "info", "critical"], default="info", help="python logger level")
+    parser.add_argument("--logfile", type=str, default="train.log", help="logfile, file basename only, like `log.txt`, will be written to outdir")
+    parser.add_argument("--quickTest", action="store_true",help="train/test on 100 image")
+    parser.add_argument("--labelName", type=str, default="labels", help="path to training labels (in input h5 file)")
+    parser.add_argument("--imgsName", type=str, default="images", help="path to training images (in input h5 file)")
     args = parser.parse_args()
     if hasattr(args, "h") or hasattr(args, "help"):
         parser.print_help()
@@ -25,27 +27,23 @@ def get_args():
 
     return parser.parse_args()
 
-import glob
-from abc import abstractmethod
-import re
+
 import os
 import sys
 import h5py
 import numpy as np
-import pandas
 import logging
 from scipy.stats import pearsonr, spearmanr
-from PIL import Image
 import pylab as plt
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-from torchvision.models import resnet18, resnet50
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from torchmetrics.classification import BinaryJaccardIndex
 
-from resonet.utils import maxbin
+
+from resonet.loaders import H5SimDataDset
+from resonet import arches
 
 
 def get_logger(filename=None, level="info"):
@@ -61,332 +59,9 @@ def get_logger(filename=None, level="info"):
     if filename is not None:
         logfile = logging.FileHandler(filename)
         logfile.setFormatter(logging.Formatter("%(asctime)s >>  %(message)s"))
-        logfile.setLevel(levels[level])
+        logfile.setLevel(20)
         logger.addHandler(logfile)
     return logger
-
-
-MX=127
-MN=0.04
-DETDIST=200
-WAVELEN=.977794
-PIXSIZE=.3
-IMG_SH=546,518
-Y,X = np.indices(IMG_SH)
-centX, centY = -0.22111771, -0.77670382 
-Rad = np.sqrt((Y-centY)**2 + (X-centX)**2)
-QMAP = np.sin(0.5*np.arctan(Rad*PIXSIZE/DETDIST))*2/WAVELEN
-
-
-class RESNetBase(nn.Module):
-
-    def _set_blocks(self):
-        self.resnet.conv1 = nn.Conv2d(self.nout, 64,
-            kernel_size=7, stride=2, padding=3,bias=False, device=self.dev)
-        self.fc1 = nn.Linear(1000,100, device=self.dev)
-        self.fc2 = nn.Linear(100, self.nout, device=self.dev)
-        self.Sigmoid = nn.Sigmoid()
-        
-    def forward (self, x):
-        x = self.resnet(x)
-        x = torch.flatten(x, 1)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        if self.binary:
-            x = self.Sigmoid(x)
-        return x
-
-    @property
-    @abstractmethod
-    def nout(self):
-        """number of output channels"""
-        return self._nout 
-    
-    @nout.setter
-    @abstractmethod
-    def nout(self, val):
-        self._nout = val
-
-    @property
-    @abstractmethod
-    def dev(self):
-        """pytorch device id e.g. `cuda:0`"""
-        return self._dev
-
-    @dev.setter
-    @abstractmethod
-    def dev(self, val):
-        self._dev = val
-
-    @property
-    @abstractmethod
-    def binary(self):
-        return self._binary
-
-    @binary.setter
-    @abstractmethod
-    def binary(self, val):
-        self._binary = val
-
-
-
-class RESNet50BC(RESNetBase):
-    def __init__(self, dev=None, nout=1):
-        super().__init__()
-        if dev is None:
-            self.dev = "cuda:0"
-        self.nout = nout
-        self.resnet = resnet18().to(self.dev)
-        self._set_blocks()
-        self.binary = True
-
-
-class RESNet18(RESNetBase):
-    def __init__(self, device_id=0, nout=1):
-        super().__init__()
-        self.dev = "cuda:%d" % device_id
-        self.nout = nout
-        self.resnet = resnet18().to(self.dev)
-        self.binary = False
-        self._set_blocks()
-
-
-class RESNet50(RESNetBase):
-    def __init__(self, dev=None, device_id=0, nout=1):
-        super().__init__()
-        if dev is None:
-            self.dev = "cuda:%d" % device_id
-        else:
-            self.dev = dev
-        self.nout = nout
-        self.resnet = resnet50().to(self.dev)
-        self.binary = False
-        self._set_blocks()
-
-
-class LeNet(nn.Module):
-
-    def __init__(self, device_id=0, nout=1):
-        super().__init__()
-        self.dev = "cuda:%d" % device_id
-        self.nout = nout
-        self.conv1 = nn.Conv2d(1, 6, 3, device=self.dev)
-        self.conv2 = nn.Conv2d(6, 16, 3, device=self.dev)
-        self.conv2_bn = nn.BatchNorm2d(16, device=self.dev)
-        self.conv3 = nn.Conv2d(16, 32, 3, device=self.dev)
-        self.conv3_bn = nn.BatchNorm2d(32, device=self.dev)
-
-        self.fc1 = nn.Linear(32*62*62, 1000, device=self.dev)
-        self.fc1_bn = nn.BatchNorm1d(1000, device=self.dev)
-        self.fc2 = nn.Linear(1000, 100, device=self.dev)
-        self.fc2_bn = nn.BatchNorm1d(100, device=self.dev)
-        self.fc3 = nn.Linear(100, self.nout, device=self.dev)
-        self.relu = nn.ReLU()
-
-    def forward(self, x):
-        x = F.max_pool2d(F.relu(self.conv1(x)), (2, 2))
-        
-        #x = F.max_pool2d(F.relu(self.conv2_bn(self.conv2(x))), 2)
-        x = F.max_pool2d(F.relu(self.conv2(x)), 2)
-        
-        x = F.max_pool2d(F.relu(self.conv3(x)), 2)
-        #x = F.max_pool2d(F.relu(self.conv3_bn(self.conv3(x))), 2)
-        
-        x = torch.flatten(x, 1) 
-        
-        x = F.relu(self.fc1(x))
-        #x = F.relu(self.fc1_bn(self.fc1(x)))
-        
-        x = F.relu(self.fc2(x))
-        #x = F.relu(self.fc2_bn(self.fc2(x)))
-        # FIXME: batchnorm breaks some validation below 
-        x = self.fc3(x)
-        return x
-
-
-class Images:
-    def __init__(self, pngdir=None, propfile=None, quad="A"):
-        if pngdir is None:
-            pngdir = "/global/cfs/cdirs/m3992/png/"
-        if propfile is None:
-            propfile = "/global/cfs/cdirs/m3992/png/num_reso_mos_B_icy1_icy2_cell_SGnum_pdbid_stolid.txt"
-        self.fnames = glob.glob(os.path.join(pngdir,"*%s.png"%quad))
-        assert self.fnames
-        self.nums = [self.get_num(f) for f in self.fnames]
-        self.img_sh = 546, 518
-        self.props = ["reso"]
-
-        self.prop = pandas.read_csv(
-            propfile,
-            delimiter=r"\s+", 
-            names=["num", "reso", "mos", "B", "icy1", "icy2", "cell1", \
-                    "cell2", "cell3", "SGnum", "pdbid", "stolid"])
-
-    @property
-    def total(self):
-        return len(self.fnames)
-
-    @staticmethod
-    def get_num(f):
-        s = re.search("sim_[0-9]{5}", f)
-        num = f[s.start(): s.end()].split("sim_")[1]
-        return int(num)
-     
-    def __getitem__(self, i):
-        if isinstance(i, slice):
-            imgs = []
-            labels = []
-            step = 1 if i.step is None else i.step
-            start = 0 if i.start is None else i.start
-            stop = len(self.fnames) if i.stop is None else i.stop
-            if stop > len(self.fnames):
-                stop = len(self.fnames)
-            assert start >=0 and stop >=0, "only supports positive slices"
-            for idx in range(start, stop, step):
-                img, label = self[idx]
-                imgs.append(img)
-                labels.append(label)
-
-            labels = pandas.concat(labels).reset_index(drop=True)
-            labels = labels[self.props].values.astype(np.float32)
-            if "reso" in self.props:
-                i_reso = self.props.index("reso")
-                labels[:,i_reso] = 1/labels[:,i_reso]
-            return np.array(imgs), labels
-        else:
-            img = Image.open(self.fnames[i])
-            num = self.nums[i] 
-
-            label = self.prop.query("num==%d" % num)
-            img = np.reshape(img.getdata(), self.img_sh).astype(np.float32)
-            mask = self.load_mask(self.fnames[i])
-            imgQ = np.zeros_like(img)
-            imgQ[mask] = QMAP[mask]
-            combined_imgs = np.array([img, QMAP])[:,:512,:512]
-            return combined_imgs, label 
-        
-
-    @staticmethod
-    def load_mask(f):
-        maskdir = os.path.join( os.path.dirname(f), "masks")
-        maskname = os.path.join(maskdir, os.path.basename(f).replace(".png", ".npy"))
-        mask = np.load(maskname)
-        return mask
-
-
-class TorchDset(Dataset):
-
-    def __init__(self, h5name, dev=None, labels="labels", images="images", start=None, stop=None):
-        self.h5 = h5py.File(h5name, "r")
-        self.images = self.h5[images]
-        self.labels = self.h5[labels]
-        self.dev = dev  # pytorch device ID
-        if start is None:
-            start = 0
-        if stop is None:
-            stop = self.images.shape[0]
-        assert start >= 0
-        assert stop <= self.images.shape[0]
-        assert stop > start
-        self.start = start
-        self.stop = stop
-
-    @property
-    def dev(self):
-        return self._dev
-
-    @dev.setter
-    def dev(self, val):
-        self._dev = val
-
-    def __len__(self):
-        return self.stop - self.start
-        #return self.images.shape[0]
-    
-    def __getitem__(self, i):
-        assert self.dev is not None
-        img_dat, img_lab = self.images[i+self.start][None], self.labels[i+self.start]
-        img_dat = torch.tensor(img_dat).to(self.dev)
-        img_lab = torch.tensor(img_lab).to(self.dev)
-        return img_dat, img_lab
-
-    @property
-    def nlab(self):
-        return self.labels.shape[-1]
-
-
-class H5Images:
-    def __init__(self, h5name, labels="labels", images="images"):
-        self.h5 = h5py.File(h5name, "r")
-        self.images = self.h5[images]
-        self.labels = self.h5[labels]
-
-    @property
-    def nlab(self):
-        return self.labels.shape[-1]
-
-    @property
-    def total(self):
-        return self.images.shape[0]
-
-    def __getitem__(self, i):
-        if isinstance(i, slice):
-            data, lab= self.images[i], self.labels[i]
-        elif isinstance(i, int):
-            data, lab= self.images[i:i+1], self.labels[i:i+1]
-        else:
-            data, lab= self.images[i], self.labels[i]
-        return data, lab
-
-
-def tensorload(images, dev, batchsize=4, start=0,  Nload=None, norm=False, seed=None, pixel_radius=None):
-    """images is a specialized class with a `total` property, and
-    a specialized getitem method (e.g. Images defined above)
-    """
-    np.random.seed(seed)
-    if Nload is None:
-        Nload = images.total - start
-
-    stop = start + Nload
-    assert start < stop <= images.total
-
-    inds = np.arange(start, stop)
-    nroll = np.random.randint(0, len(inds))
-    nbatch = int(len(inds)/batchsize)
-    batches = np.array_split(np.roll(inds, nroll), nbatch)
-    batch_order = np.random.permutation(len(batches))
-    for i_batch in batch_order:
-        batch = batches[i_batch]
-            
-        if start in set(batch):
-            istart = np.where(batch==start)[0][0]
-            if istart==0:
-                imgs, labels = images[batch[0]:batch[-1]] 
-            else:
-                slc_left = slice(batch[0], batch[istart-1]+1, 1)
-                slc_right = slice(batch[istart], batch[-1], 1)
-                imgs_left, labels_left = images[slc_left]
-                imgs_right, labels_right = images[slc_right]
-                
-                imgs = np.append(imgs_left, imgs_right, axis=0)
-                labels = np.append(labels_left, labels_right, axis=0)
-        else:
-            imgs, labels = images[batch[0]:batch[-1]] 
-
-        if norm:
-            imgs /= MX
-            imgs -= MN
-        if len(imgs.shape)==3:
-            temp = np.zeros((imgs.shape[0], 2, 512,512))
-            temp[:,0] = imgs
-            temp[:,1] = pixel_radius
-            temp = temp.astype(np.float32)
-            imgs = torch.tensor(temp[:,:1]).to(dev)
-        else:
-            imgs = torch.tensor(imgs[:, :1, :512, :512]).to(dev)
-
-        labels = torch.tensor(labels.astype(np.float32)).to(dev)
-        yield imgs, labels
 
 
 def validate(input_tens, model, epoch, criterion):
@@ -479,7 +154,7 @@ def set_ylims(ax):
 
 def setup_subplots(title=""):
     fig, (ax0, ax1) = plt.subplots(nrows=2, ncols=1, figsize=(6.5,5.5))
-    plt.suptitle(title)
+    plt.suptitle(title, fontsize=16)
     ms=8  # markersize
     ax0.tick_params(labelsize=12)
     ax1.tick_params(labelsize=12)
@@ -494,7 +169,7 @@ def setup_subplots(title=""):
     ax0.plot([],[], color='tomato',marker='s', ms=ms,lw=2, label="test")
     ax0.plot([],[], color='C0',marker='o', lw=2, ms=ms,label="train")
     ax0.plot([],[], "C2", marker="*",ms=ms, label="train-full")
-    plt.subplots_adjust(top=0.99,right=0.99,left=0.15, hspace=0.04, bottom=0.12)
+    plt.subplots_adjust(top=0.94,right=0.99,left=0.15, hspace=0.04, bottom=0.12)
     return fig, (ax0, ax1)
             
 
@@ -507,73 +182,88 @@ def update_plots(ax0,ax1, epoch):
     ax1.legend(prop={"size":12})
 
 
-def main():
-    args = get_args()
-    
-    assert os.path.exists(args.input)
-    #imgs = H5Images(args.input, args.labelName)  # data loader
-    train_imgs = TorchDset(args.input,  labels=args.labelName, images=args.imgsName,
-                           start=2000, stop=2100 if args.quickTest else 10000)
-    train_imgs_validate = TorchDset(args.input, labels=args.labelName, images=args.imgsName, start=2000,
-                                    stop=2100 if args.quickTest else 3000)
-    test_imgs = TorchDset(args.input, labels=args.labelName, images=args.imgsName,
-                          start=1000,stop=1100 if args.quickTest else 2000)
-
-    PIX_RAD = None
-    if "pixel_radius_map" in list(train_imgs.h5.keys()):
-        PIX_RAD = train_imgs.h5["pixel_radius_map"][()]
-    y,x = maxbin.get_slice_pil()
-    #PIX_RAD = maxbin.bin_ndarray(PIX_RAD[y, x], (1024, 1024), "mean")
-    PIX_RAD = maxbin.get_quadA_pil(PIX_RAD)
+def do_training(h5input, h5label, h5imgs, outdir,
+         lr=1e-3, bs=16, ep=100, momentum=0.9,
+         arch="res50", loss="L1", dev="cuda:0",
+         logfile=None, train_start_stop=None, test_start_stop=None,
+         loglevel="info",
+         display=True, save_freq=10,
+         title=None):
 
     # model and criterion choices
-    ARCHES = {"le": LeNet, "res18": RESNet18, "res50": RESNet50, "res50bc": RESNet50BC}
+    ARCHES = {"le": arches.LeNet, "res18": arches.RESNet18, "res50": arches.RESNet50, "res50bc": arches.RESNet50BC}
     LOSSES = {"L1": nn.L1Loss, "L2": nn.MSELoss, "BCE": nn.BCELoss, "BCE2": nn.BCEWithLogitsLoss}
 
+    assert loglevel in ["info", "debug", "critical"]
+
+    assert arch in ARCHES
+    assert loss in LOSSES
+
+    if logfile is None:
+        logfile = "train.log"
+
+    if train_start_stop is None:
+        train_start, train_stop = 2000,15000
+    else:
+        train_start, train_stop = train_start_stop
+    if test_start_stop is None:
+        test_start, test_stop = 0, 2000
+    else:
+        test_start, test_stop = test_start_stop
+
+    # make sure train/test sets dont intersect
+    train_rng = range(train_start, train_stop)
+    test_rng = range(test_start, test_stop)
+    assert not set(train_rng).intersection(test_rng)
+    ntest = test_stop - test_start
+
+    assert os.path.exists(h5input)
+    train_imgs = H5SimDataDset(h5input,  dev=dev, labels=h5label, images=h5imgs,
+                           start=train_start, stop=train_stop)
+    train_imgs_validate = H5SimDataDset(h5input,dev=dev,  labels=h5label, images=h5imgs,
+                                    start=train_start, stop=train_start+ntest)
+    test_imgs = H5SimDataDset(h5input, dev=dev, labels=h5label, images=h5imgs,
+                          start=test_start, stop=test_stop)
+
     #instantiate model
-    nety = ARCHES[args.arch](nout=train_imgs.nlab)
-    criterion = LOSSES[args.loss]()
-    #optimizer = optim.Adam(nety.parameters(), lr=args.lr)  # momentum=0.9)
-    optimizer = optim.SGD(nety.parameters(), lr=args.lr, momentum=0.9)
+    nety = ARCHES[arch](nout=train_imgs.nlab, dev=train_imgs.dev)
+    criterion = LOSSES[loss]()
+    optimizer = optim.SGD(nety.parameters(), lr=lr, momentum=momentum)
     #sched = torch.optim.lr_scheduler.ExponentialLR(optimizer,gamma=0.9)
-    for imgs in (train_imgs, train_imgs_validate, test_imgs):
-        imgs.dev = nety.dev
 
     # setup recordkeeping
-    if not os.path.exists(args.outdir):
-        os.makedirs(args.outdir)
-    logname = os.path.join(args.outdir, args.logfile)
-    logger = get_logger(logname, args.loglevel)
+    if not os.path.exists(outdir):
+        os.makedirs(outdir)
+    logname = os.path.join(outdir, logfile)
+    logger = get_logger(logname, loglevel)
     logger.info("==== BEGIN RESONET MAIN ====")
     cmdline = " ".join(sys.argv)
     logger.critical(cmdline)
 
     # optional plots
-    fig, (ax0, ax1) = setup_subplots(args.input)
+    if title is None:
+        title = os.path.join(os.path.basename(os.path.dirname(h5input)), os.path.basename(h5input))
+
+    fig, (ax0, ax1) = setup_subplots(title)
 
     nety.train()
     acc = 0
     mx_acc = 0
-    seeds = np.random.choice(9999999, args.ep, replace=False)
 
-    train_tens = DataLoader(train_imgs, batch_size=args.bs, shuffle=True)
-    train_tens_validate = DataLoader(train_imgs_validate, batch_size=2, shuffle=True)
-    test_tens = DataLoader(test_imgs, batch_size=2, shuffle=True)
+    train_tens = DataLoader(train_imgs, batch_size=bs, shuffle=True)
+    train_tens_validate = DataLoader(train_imgs_validate, batch_size=bs, shuffle=True)
+    test_tens = DataLoader(test_imgs, batch_size=bs, shuffle=True)
 
-    for epoch in range(args.ep):
+    for epoch in range(ep):
 
         # <><><><><><><><
         #    Trainings 
         # <><><><><><><><>
-        #train_tens = tensorload(imgs, nety.dev, start=2000,
-        #                    batchsize=args.bs, seed=seeds[epoch],
-        #                    Nload=100 if args.quickTest else None,
-        #                    pixel_radius=PIX_RAD)
 
         losses = []
         all_losses = []
 
-        if not args.noDisplay:
+        if display:
             plt.draw()
             plt.pause(0.01)
 
@@ -591,8 +281,6 @@ def main():
             if i % 10 == 0 and len(losses)> 1:  
                 
                 ave_loss = np.mean(losses)
-                if np.isnan(ave_loss):
-                    from IPython import embed;embed()
 
                 logger.info("Ep:%d, batch:%d, loss:  %.5f (latest acc=%.2f%%, max acc=%.2f%%)" \
                     % (epoch, i, ave_loss, acc, mx_acc))
@@ -600,9 +288,6 @@ def main():
         
         ave_train_loss = np.mean(all_losses)
 
-        #nld = 100 if args.quickTest else 1000
-        #test_tens = tensorload(imgs, nety.dev, batchsize=2, start=1000, Nload=nld, pixel_radius=PIX_RAD)
-        #train_tens = tensorload(imgs, nety.dev, batchsize=2, start=2000, Nload=nld, pixel_radius=PIX_RAD)
         # <><><><><><><><
         #   Validation
         # <><><><><><><><>
@@ -623,7 +308,7 @@ def main():
 
             update_plots(ax0,ax1, epoch)
 
-            if not args.noDisplay:
+            if display:
                 plt.draw()
                 plt.pause(0.3)
 
@@ -633,21 +318,33 @@ def main():
         #sched.step()
 
         # optional save
-        if (epoch+1)%args.saveFreq==0:
-            outname = os.path.join(args.outdir, "nety_ep%d.nn"%(epoch+1))
+        if (epoch+1)%save_freq==0:
+            outname = os.path.join(outdir, "nety_ep%d.nn"%(epoch+1))
             torch.save(nety.state_dict(), outname)
             plt.savefig(outname.replace(".nn", "_train.png"))
             save_results_fig(outname,test_lab, test_pred) 
             
     # final save! 
-    outname = os.path.join(args.outdir, "nety_epLast.nn")
+    outname = os.path.join(outdir, "nety_epLast.nn")
     torch.save(nety.state_dict(), outname)
     plt.savefig(outname.replace(".nn", "_train.png"))
     save_results_fig(outname,test_lab, test_pred) 
 
 
 if __name__ == "__main__":
-    main()
+    args = get_args()
+
+    train_start_stop = test_start_stop = None
+    if args.quickTest:
+        train_start_stop = 2000, 2100
+        test_start_stop = 0, 100
+    do_training(args.input, args.labelName, args.imgsName, args.outdir,
+                train_start_stop=train_start_stop,
+                test_start_stop=test_start_stop,
+                lr=args.lr, bs=args.bs, ep=args.ep,
+                arch=args.arch, loss=args.loss,
+                logfile=args.logfile, loglevel=args.loglevel,
+                display=not args.noDisplay, save_freq=args.saveFreq)
 
 #   TODO
 #   BINARY IMAGE CLASSIFIER -> get in the ballpark

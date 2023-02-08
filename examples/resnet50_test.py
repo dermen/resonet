@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 import torch
 
 from resonet.loaders import PngDset
-from resonet.net import RESNet50
+from resonet.arches import RESNet50
 import torch.nn as nn
 import torch.optim as optim
 
@@ -109,10 +109,6 @@ for epoch in range(num_epoch):
         if i % 10 == 0 and len(losses) > 1:
 
             ave_loss = np.mean(losses)
-            if np.isnan(ave_loss):
-                from IPython import embed;
-
-                embed()
 
             print("Ep:%d, batch:%d, loss:  %.5f (latest acc=%.2f%%, max acc=%.2f%%)" \
                         % (epoch, i, ave_loss, acc, mx_acc))

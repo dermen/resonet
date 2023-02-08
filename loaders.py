@@ -6,6 +6,7 @@ import pandas
 from torch.utils.data import Dataset, DataLoader
 import torch
 import numpy as np
+import h5py
 
 from PIL import Image
 
@@ -80,6 +81,54 @@ class PngDset(Dataset):
         img_dat = torch.tensor(img_dat[:512,:512][None]).to(self.dev)
         img_lab = torch.tensor(img_lab.values).to(self.dev)
         return img_dat, img_lab
+
+
+class H5SimDataDset(Dataset):
+
+    def __init__(self, h5name, dev=None, labels="labels", images="images", start=None, stop=None,
+                 label_sel=None, invert_labels=None):
+        self.h5 = h5py.File(h5name, "r")
+        self.images = self.h5[images]
+        if label_sel is None:
+            label_sel = [0]
+        self.labels = self.h5[labels][:, label_sel]
+        if invert_labels is None:
+            invert_labels = [False]
+        for i, inv in enumerate(invert_labels):
+            if inv:
+                self.labels[:,i] = 1/self.labels[:,i]
+        self.dev = dev  # pytorch device ID
+        if start is None:
+            start = 0
+        if stop is None:
+            stop = self.images.shape[0]
+        assert start >= 0
+        assert stop <= self.images.shape[0]
+        assert stop > start
+        self.start = start
+        self.stop = stop
+
+    @property
+    def dev(self):
+        return self._dev
+
+    @dev.setter
+    def dev(self, val):
+        self._dev = val
+
+    def __len__(self):
+        return self.stop - self.start
+
+    def __getitem__(self, i):
+        assert self.dev is not None
+        img_dat, img_lab = self.images[i + self.start][None], self.labels[i + self.start]
+        img_dat = torch.tensor(img_dat).to(self.dev)
+        img_lab = torch.tensor(img_lab).to(self.dev)
+        return img_dat, img_lab
+
+    @property
+    def nlab(self):
+        return self.labels.shape[-1]
 
 
 if __name__=="__main__":

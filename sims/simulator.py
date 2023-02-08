@@ -121,7 +121,7 @@ def reso2radius(reso, DET, BEAM):
     :return: the resolution converted to pixel radii (distance from beam center)
     """
     wavelen = BEAM.get_wavelength()
-    detdist = abs(DET[0].get_distance())  # approximate for tilted cameras!
+    detdist = abs(DET[0].get_distance())
     pixsize = DET[0].get_pixel_size()[0]  # assumes square pixel
 
     theta = np.arcsin(wavelen/2/reso)

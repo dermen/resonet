@@ -28,20 +28,26 @@ np.random.seed(seed)
 if __name__ == "__main__":
     from resonet.utils import eval_model
 
-    fnames = glob.glob("geoms/5.40A/*cbf")
+    fnames = glob.glob(os.path.join(sys.argv[4], "*.cbf"))
+    assert fnames
     loader = dxtbx.load(fnames[0])
     D = loader.get_detector()
     D0 = utils.set_detector_thickness(D)
     BEAM = loader.get_beam()
     mask = loader.get_raw_data().as_numpy_array() >= 0
 
+    xdim,ydim = D0[0].get_image_size()
+    is_pil = xdim == 2463
+
     HS = Simulator(D0, BEAM)
 
     detdist = abs(D0[0].get_origin()[2])
     pixsize = D0[0].get_pixel_size()[0]
     PIX_RADIUS_MAP = np.tan(2 * np.arcsin(HS.STOL * BEAM.get_wavelength())) * detdist / pixsize
+    NGPU = int(sys.argv[3])
+    dev = COMM.rank % NGPU
 
-    Nshot_tot = 20000
+    Nshot_tot = 15000
     Nshot = len(np.array_split(np.arange(Nshot_tot), COMM.size)[COMM.rank])
     multi_lattice = 2, .01
     multi_lattice = None
@@ -70,11 +76,16 @@ if __name__ == "__main__":
             t = time.time()
             params, img = HS.simulate(rot_mat=rotMats[i_shot],
                                       ang_sigma=.1,
-                                      multi_lattice_chance=0)
+                                      multi_lattice_chance=0,
+                                      dev=dev)
             radius = reso2radius(params["reso"], D0, BEAM)
             all_param.append(
                 [params["reso"], radius, params["multi_lattice"]])
-            quad = eval_model.raw_img_to_tens_pil(img, mask)
+            # TODO handle case for the Eiger!
+            if is_pil:
+                quad = eval_model.raw_img_to_tens_pil(img, mask)
+            else:
+                quad = eval_model.raw_img_to_tens(img, mask)
             raw_dset[i_shot] = img
             dset[i_shot] = quad
             t = time.time()-t
