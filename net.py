@@ -28,6 +28,7 @@ def get_args():
     return parser.parse_args()
 
 
+import time
 import os
 import sys
 import h5py
@@ -47,9 +48,15 @@ from resonet import arches
 
 
 def get_logger(filename=None, level="info"):
+    """
+
+    :param filename: optionally log to a file
+    :param level: logging level of the console (info, debug or critical)
+    :return:
+    """
     logger = logging.getLogger("resonet")
     levels = {"info": 20, "debug": 10, "critical": 50}
-    logger.setLevel(levels[level])
+    logger.setLevel(levels["info"])
 
     console = logging.StreamHandler()
     console.setFormatter(logging.Formatter("%(message)s"))
@@ -59,7 +66,7 @@ def get_logger(filename=None, level="info"):
     if filename is not None:
         logfile = logging.FileHandler(filename)
         logfile.setFormatter(logging.Formatter("%(asctime)s >>  %(message)s"))
-        logfile.setLevel(20)
+        logfile.setLevel(levels["info"])
         logger.addHandler(logfile)
     return logger
 
@@ -229,6 +236,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
     nety = ARCHES[arch](nout=train_imgs.nlab, dev=train_imgs.dev)
     criterion = LOSSES[loss]()
     optimizer = optim.SGD(nety.parameters(), lr=lr, momentum=momentum)
+    #optimizer = optim.Adam(nety.parameters(), lr=lr)
     #sched = torch.optim.lr_scheduler.ExponentialLR(optimizer,gamma=0.9)
 
     # setup recordkeeping
@@ -260,6 +268,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
         #    Trainings 
         # <><><><><><><><>
 
+        t = time.time()
         losses = []
         all_losses = []
 
@@ -287,6 +296,8 @@ def do_training(h5input, h5label, h5imgs, outdir,
                 losses = []
         
         ave_train_loss = np.mean(all_losses)
+        t = time.time()-t
+        print("Traing time: %.4f sec" % t)
 
         # <><><><><><><><
         #   Validation
