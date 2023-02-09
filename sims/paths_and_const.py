@@ -38,5 +38,8 @@ FIX_RES = None # 0.5/.29989  # optionally fix the resolution for all simulations
 RANDOM_PDBS = [d for d in glob.glob(os.path.join(dirname, "pdbs/*")) if len(os.path.basename(d))==4 and os.path.isdir(d)]
 
 # minimum mosaicity
-MOS_MIN = 0.2
-MOS_RNG = (math.sqrt(1) - math.sqrt(.2))**2
+#MOS_MIN = 0.2
+#MOS_RNG = (math.sqrt(1) - math.sqrt(.2))**2
+
+MOS_MIN = 0.01
+MOS_RNG = (math.sqrt(0.01) - math.sqrt(0.001))**2

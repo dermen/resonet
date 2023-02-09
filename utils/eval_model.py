@@ -47,11 +47,9 @@ def raw_img_to_tens_pil(raw_img, MASK, xy=None, numpy_only=False):
     return img
 
 
-def res_img_to_tens_pil(raw_img, MASK, xy=None, numpy_only=False):
-    ysl, xsl = maxbin.get_slice_pil(xy)
-    # or else pad img if shape is not 1024x1024
-    img = maxbin.img2int_pil(raw_img[ysl, xsl]*MASK[ysl,xsl])
-    img = maxbin.get_quadA_pil(img).astype(np.float32)
+def raw_img_to_tens_mar(raw_img, MASK, numpy_only=False):
+    img = maxbin.img2int_mar(raw_img*MASK)
+    img = maxbin.get_quadA_mar(img).astype(np.float32)
     if HAS_TORCH and not numpy_only:
         img = torch.tensor(img).view((1,1,512,512)).to("cpu")
     return img

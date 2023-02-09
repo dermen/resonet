@@ -23,7 +23,7 @@ class Simulator:
         self.nb_beam = make_crystal.load_beam(self.BEAM,
                                       divergence=paths_and_const.DIVERGENCE_MRAD / 1e3 * 180 / np.pi)
 
-    def simulate(self, rot_mat=None, multi_lattice_chance=0, ang_sigma=0.01, num_lat=2, mos_tuple=None,
+    def simulate(self, rot_mat=None, multi_lattice_chance=0, max_lat=2, mos_tuple=None,
                  pdb_name=None, plastic_stol=None, dev=0):
         """
 
@@ -65,10 +65,14 @@ class Simulator:
         S.D.add_nanoBragg_spots_cuda()
         spots = S.D.raw_pixels.as_numpy_array()
         use_multi = np.random.random() < multi_lattice_chance
+        ang_sigma = 0
+        num_additional_lat = 0
         if use_multi:
-            mats = Rotation.random(num_lat).as_matrix()
+            num_additional_lat = np.random.choice(range(1,max_lat))
+            mats = Rotation.random(num_additional_lat).as_matrix()
             vecs = np.dot(np.array([1, 0, 0])[None], mats)[0]
-            angs = np.random.normal(0, ang_sigma, num_lat)
+            ang_sigma = np.random.choice([0.1, 1, 10])
+            angs = np.random.normal(ang_sigma, ang_sigma, num_additional_lat)
             scaled_vecs = vecs*angs[:, None]
             rot_mats = Rotation.from_rotvec(scaled_vecs).as_matrix()
 
@@ -83,7 +87,7 @@ class Simulator:
                 S.D.raw_pixels *= 0
                 S.D.add_nanoBragg_spots_cuda()
                 spots += S.D.raw_pixels.as_numpy_array()
-            spots /= (num_lat+1)
+            spots /= (num_additional_lat+1)
 
         #print("sim random bg")
         if plastic_stol is None:
@@ -105,7 +109,7 @@ class Simulator:
         param_dict = {"reso": reso,
                       "multi_lattice": use_multi,
                       "ang_sigma": ang_sigma,
-                      "num_lat": num_lat}
+                      "num_lat": num_additional_lat+1}
 
         S.D.free_all()
 

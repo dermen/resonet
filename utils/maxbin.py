@@ -28,8 +28,17 @@ def convert_res_img(res_img):
     return img[:SHAPE_CROP[0], :SHAPE_CROP[1]]
 
 
-def img2int(raw_eiger):
-    img = bin_ndarray(raw_eiger[:4360, :4148], SHAPE_MAXFILT, 'max')
+def img2int_mar(raw_mar, howbin='max'):
+    assert raw_mar.shape==(4096,4096)
+    img = bin_ndarray(raw_mar, (1024,1024), howbin)
+    img[ img < 0] = 0
+    img = np.sqrt(img)
+    img[ img > IMAX] = IMAX
+    img = img.astype(np.uint8)
+    return img
+
+def img2int(raw_eiger, howbin='max'):
+    img = bin_ndarray(raw_eiger[:4360, :4148], SHAPE_MAXFILT, howbin)
     img[ img < 0] = 0
     img = np.sqrt(img)
     img[ img > IMAX] = IMAX 
@@ -37,9 +46,9 @@ def img2int(raw_eiger):
     return img[:SHAPE_CROP[0], :SHAPE_CROP[1]]
 
 
-def img2int_pil(raw_pil):
+def img2int_pil(raw_pil, howbin='max'):
     assert raw_pil.shape==(2048,2048)
-    img = bin_ndarray(raw_pil, (1024,1024), 'max')
+    img = bin_ndarray(raw_pil, (1024,1024), howbin)
     img[ img < 0] = 0
     img = np.sqrt(img)
     img[ img > IMAX] = IMAX 
@@ -49,6 +58,10 @@ def img2int_pil(raw_pil):
 
 def get_quadA(img):
     quadA = np.rot90(np.rot90(img))[-SHAPE_CROP[0]//2:,-SHAPE_CROP[1]//2:]
+    return quadA
+
+def get_quadA_mar(img):
+    quadA = np.rot90(np.rot90(img))[-512:, -512:]
     return quadA
 
 
