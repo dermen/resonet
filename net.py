@@ -12,7 +12,7 @@ def get_args():
     parser.add_argument("--bs", type=int,default=16, help="batch size")
     parser.add_argument("--loss", type=str, choices=["L1", "L2", "BCE", "BCE2"], default="L1", help="loss function selector")
     parser.add_argument("--saveFreq", type=int, default=10, help="how often to write the model to disk")
-    parser.add_argument("--arch", type=str, choices=["le", "res18", "res50" ,"res50bc"],
+    parser.add_argument("--arch", type=str, choices=["le", "res18", "res50" ,"res50bc", "res34", "res101", "res152"],
                         default="res50", help="architecture selector")
     parser.add_argument("--loglevel", type=str, 
             choices=["debug", "info", "critical"], default="info", help="python logger level")
@@ -20,6 +20,11 @@ def get_args():
     parser.add_argument("--quickTest", action="store_true",help="train/test on 100 image")
     parser.add_argument("--labelName", type=str, default="labels", help="path to training labels (in input h5 file)")
     parser.add_argument("--imgsName", type=str, default="images", help="path to training images (in input h5 file)")
+    parser.add_argument("--dropout", action="store_true")
+    parser.add_argument("--weightDecay", default=0, type=float)
+    parser.add_argument("--trainRange", type=int, nargs=2, default=None)
+    parser.add_argument("--testRange", type=int, nargs=2, default=None)
+    parser.add_argument("--momentum", type=float, default=0.9, help="momentum for SGD optimizer")
     args = parser.parse_args()
     if hasattr(args, "h") or hasattr(args, "help"):
         parser.print_help()
@@ -191,14 +196,17 @@ def update_plots(ax0,ax1, epoch):
 
 def do_training(h5input, h5label, h5imgs, outdir,
          lr=1e-3, bs=16, ep=100, momentum=0.9,
+         weight_decay=0, dropout=False,
          arch="res50", loss="L1", dev="cuda:0",
          logfile=None, train_start_stop=None, test_start_stop=None,
          loglevel="info",
          display=True, save_freq=10,
+         num_workers=1,
          title=None):
 
     # model and criterion choices
-    ARCHES = {"le": arches.LeNet, "res18": arches.RESNet18, "res50": arches.RESNet50, "res50bc": arches.RESNet50BC}
+    ARCHES = {"le": arches.LeNet, "res18": arches.RESNet18, "res50": arches.RESNet50, "res50bc": arches.RESNet50BC,
+              "res34": arches.RESNet34, "res101": arches.RESNet101, "res152": arches.RESNet152}
     LOSSES = {"L1": nn.L1Loss, "L2": nn.MSELoss, "BCE": nn.BCELoss, "BCE2": nn.BCEWithLogitsLoss}
 
     assert loglevel in ["info", "debug", "critical"]
@@ -233,9 +241,9 @@ def do_training(h5input, h5label, h5imgs, outdir,
                           start=test_start, stop=test_stop)
 
     #instantiate model
-    nety = ARCHES[arch](nout=train_imgs.nlab, dev=train_imgs.dev)
+    nety = ARCHES[arch](nout=train_imgs.nlab, dev=train_imgs.dev, dropout=dropout)
     criterion = LOSSES[loss]()
-    optimizer = optim.SGD(nety.parameters(), lr=lr, momentum=momentum)
+    optimizer = optim.SGD(nety.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
     #optimizer = optim.Adam(nety.parameters(), lr=lr)
     #sched = torch.optim.lr_scheduler.ExponentialLR(optimizer,gamma=0.9)
 
@@ -260,7 +268,8 @@ def do_training(h5input, h5label, h5imgs, outdir,
 
     train_tens = DataLoader(train_imgs, batch_size=bs, shuffle=True)
     train_tens_validate = DataLoader(train_imgs_validate, batch_size=bs, shuffle=True)
-    test_tens = DataLoader(test_imgs, batch_size=bs, shuffle=True)
+    test_tens = DataLoader(test_imgs, batch_size=bs, shuffle=True)#, num_workers=num_workers, multiprocessing_context='spawn')
+    nbatch = np.ceil((train_stop - train_start) / bs)
 
     for epoch in range(ep):
 
@@ -277,6 +286,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
             plt.pause(0.01)
 
         for i, (data, labels) in enumerate(train_tens):
+            print("Training Epoch %d batch %d/%d" % (epoch+1, i+1, nbatch))
 
             optimizer.zero_grad()
 
@@ -284,18 +294,18 @@ def do_training(h5input, h5label, h5imgs, outdir,
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            l = loss.item()
-            losses.append(l)
-            all_losses.append(l)
-            if i % 10 == 0 and len(losses)> 1:  
-                
-                ave_loss = np.mean(losses)
+            #l = loss.item()
+            #losses.append(l)
+            #all_losses.append(l)
+            #if i % 10 == 0 and len(losses)> 1:
+            #
+            #    ave_loss = np.mean(losses)
 
-                logger.info("Ep:%d, batch:%d, loss:  %.5f (latest acc=%.2f%%, max acc=%.2f%%)" \
-                    % (epoch, i, ave_loss, acc, mx_acc))
-                losses = []
+            #    logger.info("Ep:%d, batch:%d, loss:  %.5f (latest acc=%.2f%%, max acc=%.2f%%)" \
+            #        % (epoch, i, ave_loss, acc, mx_acc))
+            #    losses = []
         
-        ave_train_loss = np.mean(all_losses)
+        #ave_train_loss = np.mean(all_losses)
         t = time.time()-t
         print("Traing time: %.4f sec" % t)
 
@@ -313,7 +323,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
             
             plot_acc(ax0, 0, test_loss, epoch)
             plot_acc(ax0, 1, train_loss, epoch)
-            plot_acc(ax0, 2, ave_train_loss, epoch)
+            plot_acc(ax0, 2, train_loss, epoch)
             plot_acc(ax1, 0, acc, epoch)
             plot_acc(ax1, 1, train_acc, epoch)
 
@@ -349,9 +359,15 @@ if __name__ == "__main__":
     if args.quickTest:
         train_start_stop = 2000, 2100
         test_start_stop = 0, 100
+    if args.trainRange is not None:
+        train_start_stop = args.trainRange
+    if args.testRange is not None:
+        test_start_stop = args.testRange
     do_training(args.input, args.labelName, args.imgsName, args.outdir,
                 train_start_stop=train_start_stop,
                 test_start_stop=test_start_stop,
+                momentum=args.momentum,
+                weight_decay=args.weightDecay, dropout=args.dropout,
                 lr=args.lr, bs=args.bs, ep=args.ep,
                 arch=args.arch, loss=args.loss,
                 logfile=args.logfile, loglevel=args.loglevel,

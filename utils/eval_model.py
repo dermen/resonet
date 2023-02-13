@@ -53,3 +53,4 @@ def raw_img_to_tens_mar(raw_img, MASK, numpy_only=False):
     if HAS_TORCH and not numpy_only:
         img = torch.tensor(img).view((1,1,512,512)).to("cpu")
     return img
+

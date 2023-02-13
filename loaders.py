@@ -87,26 +87,43 @@ class H5SimDataDset(Dataset):
 
     def __init__(self, h5name, dev=None, labels="labels", images="images", start=None, stop=None,
                  label_sel=None, invert_labels=None):
-        self.h5 = h5py.File(h5name, "r")
-        self.images = self.h5[images]
         if label_sel is None:
             label_sel = [0]
-        self.labels = self.h5[labels][:, label_sel]
-        if invert_labels is None:
-            invert_labels = [False]
-        for i, inv in enumerate(invert_labels):
-            if inv:
-                self.labels[:,i] = 1/self.labels[:,i]
+        self.nlab = len(label_sel)
+        self.label_sel = label_sel
+        self.labels_name = labels  #
+        self.images_name = images
+        self.invert_labels = invert_labels
+        self.h5name = h5name
+
+        # open to get length quickly!
+        with h5py.File(h5name, "r") as h:
+            self.num_images = h[self.images_name].shape[0]
+
         self.dev = dev  # pytorch device ID
         if start is None:
             start = 0
         if stop is None:
-            stop = self.images.shape[0]
+            stop = self.num_images
         assert start >= 0
-        assert stop <= self.images.shape[0]
+        assert stop <= self.num_images
         assert stop > start
         self.start = start
         self.stop = stop
+
+        self.h5 = None  # handle for hdf5 file
+        self.images = None  # hdf5 dataset
+        self.labels = None  # hdf5 dataset
+
+    def open(self):
+        self.h5 = h5py.File(self.h5name, "r")
+        self.images = self.h5[self.images_name]
+        self.labels = self.h5[self.labels_name][:, self.label_sel]
+        if self.invert_labels is None:
+            self.invert_labels = [False]
+        for i, inv in enumerate(self.invert_labels):
+            if inv:
+                self.labels[:,i] = 1/self.labels[:,i]
 
     @property
     def dev(self):
@@ -121,14 +138,90 @@ class H5SimDataDset(Dataset):
 
     def __getitem__(self, i):
         assert self.dev is not None
+        if self.images is None:
+            self.open()
         img_dat, img_lab = self.images[i + self.start][None], self.labels[i + self.start]
         img_dat = torch.tensor(img_dat).to(self.dev)
         img_lab = torch.tensor(img_lab).to(self.dev)
         return img_dat, img_lab
 
-    @property
     def nlab(self):
-        return self.labels.shape[-1]
+        return self.nlab
+
+
+class H5SimDataMPI(H5SimDataDset):
+
+    def __init__(self, mpi_comm, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.com = mpi_comm
+
+    def __getitem__(self, i):
+        assert self.dev is not None
+        img_dat, img_lab = self.images[i + self.start][None], self.labels[i + self.start]
+        return img_dat, img_lab
+        #img_dat = torch.tensor(img_dat).to(self.dev)
+        #img_lab = torch.tensor(img_lab).to(self.dev)
+        #return img_dat, img_lab
+
+
+class H5Loader:
+    def __init__(self, dset, comm, batch_size=8, shuffle=True):
+        self.shuffle = shuffle
+        self.dset = dset
+        self.comm = comm
+        self.bs = batch_size
+        self.i_batch = 0  # batch counter
+        self.samp_per_batch = None
+        self.batch_data_holder = None
+        self.batch_label_holder = None
+        self._set_batches()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+
+        self.i_batch += 1
+        if self.i_batch < len(self.samp_per_batch):
+            return self.get_batch()
+        else:
+            self._set_batches()
+            self.i_batch = 0
+            raise StopIteration
+
+    def _set_batches(self):
+        nbatch = int(len(self.dset) / self.bs)
+
+        if self.comm.rank == 0:
+            batch_order = np.random.permutation(len(self.dset))
+            self.samp_per_batch = np.array_split(batch_order, nbatch)
+        self.samp_per_batch = self.comm.bcast(self.samp_per_batch)
+        max_size = max([len(x) for x in self.samp_per_batch])
+        self.batch_data_holder = np.zeros((max_size, 1, 512, 512))
+        self.batch_label_holder = np.zeros((max_size, 1))
+
+    def get_batch(self):
+        assert self.i_batch < len(self.samp_per_batch)
+        nsamp = len(self.samp_per_batch[self.i_batch])
+        for ii, i in enumerate(self.samp_per_batch[self.i_batch]):
+            if i % self.comm.size != self.comm.rank:
+                continue
+            data, label = self.dset[i]
+            self.batch_data_holder[ii] = data
+            self.batch_label_holder[ii] = label
+        self.batch_data_holder = self._reduce_bcast(self.batch_data_holder)
+        self.batch_label_holder = self._reduce_bcast(self.batch_label_holder)
+        dat = torch.tensor(self.batch_data_holder[:nsamp])
+        lab = torch.tensor(self.batch_label_holder[:nsamp])
+        return dat, lab
+
+    def _reduce_bcast(self, arr):
+        return self.comm.bcast(self.comm.reduce(arr))
+
+
+
+
+
 
 
 if __name__=="__main__":
