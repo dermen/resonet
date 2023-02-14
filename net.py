@@ -44,6 +44,7 @@ import pylab as plt
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
 from torchmetrics.classification import BinaryJaccardIndex
 
@@ -52,15 +53,20 @@ from resonet.loaders import H5SimDataDset
 from resonet import arches
 
 
-def get_logger(filename=None, level="info"):
+def get_logger(filename=None, level="info", do_nothing=False):
     """
 
     :param filename: optionally log to a file
     :param level: logging level of the console (info, debug or critical)
+     do_nothing: return a logger that doesnt actually log (for non-root processes)
     :return:
     """
-    logger = logging.getLogger("resonet")
     levels = {"info": 20, "debug": 10, "critical": 50}
+    if do_nothing:
+        logger = logging.getLogger()
+        logger.setLevel(levels["critical"])
+        return logger
+    logger = logging.getLogger("resonet")
     logger.setLevel(levels["info"])
 
     console = logging.StreamHandler()
@@ -76,7 +82,7 @@ def get_logger(filename=None, level="info"):
     return logger
 
 
-def validate(input_tens, model, epoch, criterion):
+def validate(input_tens, model, epoch, criterion, COMM=None):
     """
     tens is return value of tensorloader
     TODO make validation multi-channel (e.g. average accuracy over all labels)
@@ -90,7 +96,8 @@ def validate(input_tens, model, epoch, criterion):
     all_pred = []
     all_loss = []
     for i,(data,labels) in enumerate(input_tens):
-        print("validation batch %d"% i,end="\r", flush=True)
+        if COMM is None or COMM.rank==0:
+            print("validation batch %d"% i,end="\r", flush=True)
         pred = model(data)
 
         loss = criterion(pred, labels)
@@ -107,9 +114,16 @@ def validate(input_tens, model, epoch, criterion):
         all_lab += [[l.item() for l in labs] for labs in labels]
         all_pred += [[p.item() for p in preds] for preds in pred]
 
+    if COMM is not None:
+        all_lab = COMM.bcast(COMM.reduce(all_lab))
+        all_pred = COMM.bcast(COMM.reduce(all_pred))
+        all_loss = COMM.bcast(COMM.reduce(all_loss))
+
     all_lab = np.array(all_lab).T
     all_pred = np.array(all_pred).T
-    print("\n")
+    if COMM is None or COMM.rank==0:
+        print("Number of samples:" , all_lab.shape)
+        print("\n")
 
     if not using_bce:
         acc = nacc / total*100.
@@ -202,7 +216,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
          loglevel="info",
          display=True, save_freq=10,
          num_workers=1,
-         title=None):
+         title=None, COMM=None, ngpu_per_node=1):
 
     # model and criterion choices
     ARCHES = {"le": arches.LeNet, "res18": arches.RESNet18, "res50": arches.RESNet50, "res50bc": arches.RESNet50BC,
@@ -233,6 +247,11 @@ def do_training(h5input, h5label, h5imgs, outdir,
     ntest = test_stop - test_start
 
     assert os.path.exists(h5input)
+    if COMM is not None:
+        # TODO: assert that e.g. slurm_init has been called (distributed.init_process_group)
+        gpuid = COMM.rank % ngpu_per_node
+        dev = "cuda:%d" % gpuid
+
     train_imgs = H5SimDataDset(h5input,  dev=dev, labels=h5label, images=h5imgs,
                            start=train_start, stop=train_stop)
     train_imgs_validate = H5SimDataDset(h5input,dev=dev,  labels=h5label, images=h5imgs,
@@ -242,36 +261,60 @@ def do_training(h5input, h5label, h5imgs, outdir,
 
     #instantiate model
     nety = ARCHES[arch](nout=train_imgs.nlab, dev=train_imgs.dev, dropout=dropout)
+    if COMM is not None:
+        nety = torch.nn.SyncBatchNorm.convert_sync_batchnorm(nety)
+        nety = nn.parallel.DistributedDataParallel(nety, device_ids=[gpuid])
+
+
     criterion = LOSSES[loss]()
     optimizer = optim.SGD(nety.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
-    #optimizer = optim.Adam(nety.parameters(), lr=lr)
+    #optimizer = optim.Adam(nety.parameters(), lr=lr, weight_decay=weight_decay)
     #sched = torch.optim.lr_scheduler.ExponentialLR(optimizer,gamma=0.9)
 
     # setup recordkeeping
-    if not os.path.exists(outdir):
-        os.makedirs(outdir)
-    logname = os.path.join(outdir, logfile)
-    logger = get_logger(logname, loglevel)
-    logger.info("==== BEGIN RESONET MAIN ====")
-    cmdline = " ".join(sys.argv)
-    logger.critical(cmdline)
+    if COMM is None or COMM.rank==0:
+        if not os.path.exists(outdir):
+            os.makedirs(outdir)
+        logname = os.path.join(outdir, logfile)
+        logger = get_logger(logname, loglevel)
+        logger.info("==== BEGIN RESONET MAIN ====")
+        cmdline = " ".join(sys.argv)
+        logger.critical(cmdline)
+    else:
+        logger = get_logger(do_nothing=True)
 
-    # optional plots
-    if title is None:
-        title = os.path.join(os.path.basename(os.path.dirname(h5input)), os.path.basename(h5input))
-
-    fig, (ax0, ax1) = setup_subplots(title)
+    
+    if COMM is None or COMM.rank==0:
+        # optional plots
+        if title is None:
+            title = os.path.join(os.path.basename(os.path.dirname(h5input)), 
+                        os.path.basename(h5input))
+        fig, (ax0, ax1) = setup_subplots(title)
 
     nety.train()
     acc = 0
     mx_acc = 0
 
-    train_tens = DataLoader(train_imgs, batch_size=bs, shuffle=True)
-    train_tens_validate = DataLoader(train_imgs_validate, batch_size=bs, shuffle=True)
-    test_tens = DataLoader(test_imgs, batch_size=bs, shuffle=True)#, num_workers=num_workers, multiprocessing_context='spawn')
+    shuffle = True
+    train_sampler = train_validate_sampler = test_sampler = None
+    if COMM is not None:
+        shuffle = None
+        train_sampler = DistributedSampler(train_imgs, rank=COMM.rank, num_replicas=COMM.size) 
+        train_validate_sampler = DistributedSampler(train_imgs_validate) 
+        test_sampler = DistributedSampler(test_imgs) 
+         
+    train_tens = DataLoader(train_imgs, batch_size=bs, shuffle=shuffle, 
+                        sampler=train_sampler)
+    train_tens_validate = DataLoader(train_imgs_validate, batch_size=bs, shuffle=shuffle, 
+                        sampler=train_validate_sampler)
+    test_tens = DataLoader(test_imgs, batch_size=bs, shuffle=shuffle, sampler=test_sampler)
+
     nbatch = np.ceil((train_stop - train_start) / bs)
+    if COMM is not None:
+        nbatch = np.ceil((train_stop - train_start) / bs / COMM.size)
 
     for epoch in range(ep):
+
 
         # <><><><><><><><
         #    Trainings 
@@ -281,12 +324,18 @@ def do_training(h5input, h5label, h5imgs, outdir,
         losses = []
         all_losses = []
 
-        if display:
+        if display and (COMM is None or COMM.rank==0):
             plt.draw()
             plt.pause(0.01)
+        
+        if COMM is not None:  # or if train_tens.sampler is not None
+            train_tens.sampler.set_epoch(epoch)
 
         for i, (data, labels) in enumerate(train_tens):
-            print("Training Epoch %d batch %d/%d" % (epoch+1, i+1, nbatch))
+            
+            if COMM is None or COMM.rank==0:
+                print("Training Epoch %d batch %d/%d" \
+                    % (epoch+1, i+1, nbatch), flush=True)
 
             optimizer.zero_grad()
 
@@ -307,7 +356,8 @@ def do_training(h5input, h5label, h5imgs, outdir,
         
         #ave_train_loss = np.mean(all_losses)
         t = time.time()-t
-        print("Traing time: %.4f sec" % t)
+        if COMM is None or COMM.rank==0:
+            print("Traing time: %.4f sec" % t, flush=True)
 
         # <><><><><><><><
         #   Validation
@@ -315,23 +365,24 @@ def do_training(h5input, h5label, h5imgs, outdir,
         nety.eval()
         with torch.no_grad():
             logger.info("Computing test accuracy:")
-            acc,test_loss, test_lab, test_pred = validate(test_tens, nety, epoch, criterion)
+            acc,test_loss, test_lab, test_pred = validate(test_tens, nety, epoch, criterion, COMM)
             logger.info("Computing train accuracy:")
-            train_acc,train_loss,_,_ = validate(train_tens_validate, nety, epoch, criterion)
+            train_acc,train_loss,_,_ = validate(train_tens_validate, nety, epoch, criterion, COMM)
 
             mx_acc = max(acc, mx_acc)
             
-            plot_acc(ax0, 0, test_loss, epoch)
-            plot_acc(ax0, 1, train_loss, epoch)
-            plot_acc(ax0, 2, train_loss, epoch)
-            plot_acc(ax1, 0, acc, epoch)
-            plot_acc(ax1, 1, train_acc, epoch)
+            if COMM is None or COMM.rank==0:    
+                plot_acc(ax0, 0, test_loss, epoch)
+                plot_acc(ax0, 1, train_loss, epoch)
+                plot_acc(ax0, 2, train_loss, epoch)
+                plot_acc(ax1, 0, acc, epoch)
+                plot_acc(ax1, 1, train_acc, epoch)
 
-            update_plots(ax0,ax1, epoch)
+                update_plots(ax0,ax1, epoch)
 
-            if display:
-                plt.draw()
-                plt.pause(0.3)
+                if display:
+                    plt.draw()
+                    plt.pause(0.3)
 
         # <><><><><><><><
         #  End Validation
@@ -339,17 +390,18 @@ def do_training(h5input, h5label, h5imgs, outdir,
         #sched.step()
 
         # optional save
-        if (epoch+1)%save_freq==0:
+        if (epoch+1)%save_freq==0 and (COMM is None or COMM.rank==0):
             outname = os.path.join(outdir, "nety_ep%d.nn"%(epoch+1))
             torch.save(nety.state_dict(), outname)
             plt.savefig(outname.replace(".nn", "_train.png"))
             save_results_fig(outname,test_lab, test_pred) 
             
     # final save! 
-    outname = os.path.join(outdir, "nety_epLast.nn")
-    torch.save(nety.state_dict(), outname)
-    plt.savefig(outname.replace(".nn", "_train.png"))
-    save_results_fig(outname,test_lab, test_pred) 
+    if COMM is None or COMM.rank==0:
+        outname = os.path.join(outdir, "nety_epLast.nn")
+        torch.save(nety.state_dict(), outname)
+        plt.savefig(outname.replace(".nn", "_train.png"))
+        save_results_fig(outname,test_lab, test_pred) 
 
 
 if __name__ == "__main__":
