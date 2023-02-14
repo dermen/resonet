@@ -194,7 +194,7 @@ def setup_subplots(title=""):
     ax1.plot([],[], "C0", marker="o", ms=ms,label="train")
     ax0.plot([],[], color='tomato',marker='s', ms=ms,lw=2, label="test")
     ax0.plot([],[], color='C0',marker='o', lw=2, ms=ms,label="train")
-    ax0.plot([],[], "C2", marker="*",ms=ms, label="train-full")
+    ax0.plot([],[], "C2", marker="None",ms=ms, ls="None")
     plt.subplots_adjust(top=0.94,right=0.99,left=0.15, hspace=0.04, bottom=0.12)
     return fig, (ax0, ax1)
             
