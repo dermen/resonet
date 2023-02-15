@@ -25,6 +25,8 @@ def get_args():
     parser.add_argument("--trainRange", type=int, nargs=2, default=None)
     parser.add_argument("--testRange", type=int, nargs=2, default=None)
     parser.add_argument("--momentum", type=float, default=0.9, help="momentum for SGD optimizer")
+    parser.add_argument("--nesterov", action="store_true", help="use nesterov momentum (SGD)")
+    parser.add_argument("--damp", type=float, default=0, help="dampening (SGD)")
     args = parser.parse_args()
     if hasattr(args, "h") or hasattr(args, "help"):
         parser.print_help()
@@ -49,6 +51,7 @@ from torch.utils.data import DataLoader
 from torchmetrics.classification import BinaryJaccardIndex
 
 
+from resonet.params import ARCHES, LOSSES
 from resonet.loaders import H5SimDataDset
 from resonet import arches
 
@@ -211,6 +214,7 @@ def update_plots(ax0,ax1, epoch):
 def do_training(h5input, h5label, h5imgs, outdir,
          lr=1e-3, bs=16, ep=100, momentum=0.9,
          weight_decay=0, dropout=False,
+         nesterov=False, damp=0,
          arch="res50", loss="L1", dev="cuda:0",
          logfile=None, train_start_stop=None, test_start_stop=None,
          loglevel="info",
@@ -219,9 +223,6 @@ def do_training(h5input, h5label, h5imgs, outdir,
          title=None, COMM=None, ngpu_per_node=1):
 
     # model and criterion choices
-    ARCHES = {"le": arches.LeNet, "res18": arches.RESNet18, "res50": arches.RESNet50, "res50bc": arches.RESNet50BC,
-              "res34": arches.RESNet34, "res101": arches.RESNet101, "res152": arches.RESNet152}
-    LOSSES = {"L1": nn.L1Loss, "L2": nn.MSELoss, "BCE": nn.BCELoss, "BCE2": nn.BCEWithLogitsLoss}
 
     assert loglevel in ["info", "debug", "critical"]
 
@@ -263,11 +264,12 @@ def do_training(h5input, h5label, h5imgs, outdir,
     nety = ARCHES[arch](nout=train_imgs.nlab, dev=train_imgs.dev, dropout=dropout)
     if COMM is not None:
         nety = torch.nn.SyncBatchNorm.convert_sync_batchnorm(nety)
-        nety = nn.parallel.DistributedDataParallel(nety, device_ids=[gpuid])
+        nety = nn.parallel.DistributedDataParallel(nety, device_ids=[gpuid], 
+            find_unused_parameters= arch in ["le"])
 
 
     criterion = LOSSES[loss]()
-    optimizer = optim.SGD(nety.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
+    optimizer = optim.SGD(nety.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay, nesterov=nesterov, dampening=damp )
     #optimizer = optim.Adam(nety.parameters(), lr=lr, weight_decay=weight_decay)
     #sched = torch.optim.lr_scheduler.ExponentialLR(optimizer,gamma=0.9)
 
@@ -419,7 +421,9 @@ if __name__ == "__main__":
                 train_start_stop=train_start_stop,
                 test_start_stop=test_start_stop,
                 momentum=args.momentum,
-                weight_decay=args.weightDecay, dropout=args.dropout,
+                weight_decay=args.weightDecay, 
+                nesterov=args.nesterov, damp=args.damp,
+                dropout=args.dropout,
                 lr=args.lr, bs=args.bs, ep=args.ep,
                 arch=args.arch, loss=args.loss,
                 logfile=args.logfile, loglevel=args.loglevel,

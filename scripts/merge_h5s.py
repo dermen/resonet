@@ -22,8 +22,11 @@ print("Combining %d files" % len(fnames))
 dummie_h = h5py.File(fnames[0], "r")
 
 shapes = {}
-for key in ["images", "labels"]:
-    shapes[key] = dummie_h[key].shape[1:] 
+for key in ["images_mean", "images", "labels"]:
+    try:
+        shapes[key] = dummie_h[key].shape[1:] 
+    except KeyError:
+        pass
 
 
 imgs_per_fname = [h5py.File(f, 'r')['labels'].shape[0] for f in fnames]
@@ -41,7 +44,7 @@ for i_f, f in enumerate(fnames):
         vsource = h5py.VirtualSource(f, key, shape=(nimg,) + shapes[key])
         Layouts[key][start:start+nimg] = vsource
 
-    im_source = h5py.VirtualSource(f, "images", shape=(nimg,) + shapes["images"])
+    #im_source = h5py.VirtualSource(f, "images", shape=(nimg,) + shapes["images"])
     start += nimg
 
 print("Saving it all to %s!" % args.outname) #master_name)
