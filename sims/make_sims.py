@@ -34,10 +34,17 @@ def choose_deltaB():
     return B-10
 
 
-def choose_mos():
+def choose_mos(mos_min=None, mos_max=None):
     # choose a random mosaicity
+    if mos_min is None:
+        mos_min = paths_and_const.MOS_MIN
+    if mos_max is None:
+        mos_max = paths_and_const.MOS_MAX
+    assert mos_min < mos_max
+
+    mos_rng = (np.sqrt(mos_max) - np.sqrt(mos_min))**2    
     r = np.random.random()
-    mosaic = paths_and_const.MOS_MIN + r*paths_and_const.MOS_RNG
+    mosaic = mos_min + r*mos_rng
     mosdoms = int(1000 + 50*mosaic**2)
     return mosaic, mosdoms
 

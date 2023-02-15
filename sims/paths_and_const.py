@@ -12,9 +12,6 @@ Some constants and file paths for simulations
 # to convert to P1
 
 dirname = os.environ.get("RESONET_SIMDATA")
-P1_FILE = os.path.join(dirname, "pdb_P1_hkls.h5")
-FILE = os.path.join(dirname, "pdb_highSym_hkls.h5")
-
 
 # these are scattering profiles for random plastics (from James Holton)
 RANDOM_STOLS = glob.glob(os.path.join(dirname, "randomstols/*stol"))
@@ -37,9 +34,7 @@ FIX_RES = None # 0.5/.29989  # optionally fix the resolution for all simulations
 # these are the PDB folders containing pdb files and P1.hkl files
 RANDOM_PDBS = [d for d in glob.glob(os.path.join(dirname, "pdbs/*")) if len(os.path.basename(d))==4 and os.path.isdir(d)]
 
-# minimum mosaicity
-#MOS_MIN = 0.2
-#MOS_RNG = (math.sqrt(1) - math.sqrt(.2))**2
+# mosaicity bounds (degrees)
+MOS_MIN = 0.001
+MOS_MAX = 0.01
 
-MOS_MIN = 0.01
-MOS_RNG = (math.sqrt(0.01) - math.sqrt(0.001))**2

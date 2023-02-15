@@ -37,38 +37,6 @@ def convert_inds(amps, hkls, pdb_file, d_min=1.2):
     return new_amps, new_inds
 
 
-def load_amps(hkl_file, ucell, sg="P1", use_hdf5=True):
-    """
-    :param hkl_file: 4-column text files, P1 miller indices (cols 1-3) and amplitudes (col 4)
-    :param ucell: unit cell dimensions (if sg=P1, ensure ucell is p1 equivalent cell)
-    :param sg: space group lookup symbol , e.g. P43212
-    :param use_hdf5: use the hdf5 file
-    :return: cctbx miller array object
-    """
-    if use_hdf5:
-        fname = paths_and_const.P1_FILE if sg=="P1" else paths_and_const.FILE
-        with h5py.File(fname, "r") as H:
-            pdb_id = os.path.basename(os.path.dirname(hkl_file))
-            amps = H[pdb_id]["amps"][()]
-            if not amps.flags.contiguous:
-                amps = np.ascontiguousarray(amps)
-            amps = flex.double(amps)
-
-            hkl = H[pdb_id]["hkl"][()]
-            if not hkl.dtype==np.int32:
-                hkl = hkl.astype(np.int32)
-            midx = flex.miller_index(hkl)
-    else:
-        hklF = np.loadtxt(hkl_file)
-        midx = flex.miller_index(hklF[:,:3].astype(np.int32))
-        amps = flex.double(np.ascontiguousarray(hklF[:,3]))
-
-    sym = crystal.symmetry(ucell, sg)
-    mset = miller.set(sym, midx, True)
-    ma = miller.array(mset, amps)
-    return ma
-
-
 def get_Nabc(ucell):
     """
 
@@ -90,8 +58,6 @@ def load_crystal(folder, rot_mat=None):
     """
 
     :param folder:  pdb folder, e.g. /data/dermen/sims/pdbs/2itu
-        each folder basename 2itu should also exist in the paths_and_const.P1_FILE hdf5 file if reading from hdf5
-        If not, the files ./pdbs/2itu/2itu.pdb are and ./pdbs/2itu/P1.hkl are expected to exist
     :param rot_mat: rotation matrix of crystal (otherwise it will be aligned in the standard PDB convention)
     :return:
     """
@@ -111,6 +77,7 @@ def load_crystal(folder, rot_mat=None):
     C.miller_array = ma
     C.symbol = ma.space_group_info().type().lookup_symbol()
     return C
+
 
 def load_beam(dxtbx_beam, divergence=0):
     """

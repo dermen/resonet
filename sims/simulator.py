@@ -12,7 +12,7 @@ from resonet.sims import make_sims, make_crystal, paths_and_const
 
 class Simulator:
 
-    def __init__(self, DET, BEAM):
+    def __init__(self, DET, BEAM, cuda=True):
         self.DET = DET
         self.BEAM = BEAM
         # air and water background:
@@ -22,20 +22,21 @@ class Simulator:
 
         self.nb_beam = make_crystal.load_beam(self.BEAM,
                                       divergence=paths_and_const.DIVERGENCE_MRAD / 1e3 * 180 / np.pi)
+        self.cuda=cuda
 
-    def simulate(self, rot_mat=None, multi_lattice_chance=0, max_lat=2, mos_tuple=None,
-                 pdb_name=None, plastic_stol=None, dev=0):
+    def simulate(self, rot_mat=None, multi_lattice_chance=0, max_lat=2, mos_min_max=None,
+                 pdb_name=None, plastic_stol=None, dev=0, mos_dom_override=None):
         """
 
-        :param rot_mat:
-        :param multi_lattice_chance:
-        :param ang_sigma:
-        :param num_lat:
-        :param mos_tuple:
-        :param pdb_name:
-        :param plastic_stol:
-        :param dev: device id
-        :return:
+        :param rot_mat: specific orientation matrix for crystal
+        :param multi_lattice_chance:  probabilitt to include more lattices
+        :param num_lat: number of lattices (in the event a multiple lattice shot is simulated)
+        :param mos_min_max: values for determing the size of the mosaic spread. Should be lower, upper bounds given in degrees 
+        :param pdb_name: path to the pdb folder (for debug purposes).
+        :param plastic_stol: path to the plastic `sin theta over lambda` file (debug purposes only)
+        :param dev: device id (number from 0 to N-1 where N is number of nvidia GPUs available (run nvidia-smi to check)
+        :param mos_dom_override: number of mosaic blocks to simulate. If not, will be determined via make_sims.choose_mos function. 
+        :return: parameters and simulated image
         """
         if pdb_name is None:
             pdb_name = make_sims.choose_pdb()
@@ -43,11 +44,15 @@ class Simulator:
             assert os.path.exists(pdb_name)
             assert os.path.isdir(pdb_name)
         C = make_crystal.load_crystal(pdb_name, rot_mat)
-        if mos_tuple is None:
-            mos_spread, mos_dom = make_sims.choose_mos()
-        else:
-            mos_spread, mos_dom = mos_tuple
+        mos_min = mos_max = None  # will default to values in paths_and_const.py
+        if mos_min_max is None:
+            mos_min, mos_max = mos_min_max
+
+        mos_spread, mos_dom = make_sims.choose_mos(mos_min, mos_max)
         C.mos_spread_deg = mos_spread
+
+        if mos_dom_override is not None:
+            mos_dom = mos_dom_override
         n_mos = mos_dom//2
         if n_mos % 2 == 1:
             n_mos += 1
@@ -60,9 +65,11 @@ class Simulator:
         S.instantiate_nanoBragg(oversample=1)
 
         #S.D.show_params()
-
-        S.D.device_Id = dev
-        S.D.add_nanoBragg_spots_cuda()
+        if self.cuda:
+            S.D.device_Id = dev
+            S.D.add_nanoBragg_spots_cuda()
+        else:
+            S.D.add_nanoBragg_spots()
         spots = S.D.raw_pixels.as_numpy_array()
         use_multi = np.random.random() < multi_lattice_chance
         ang_sigma = 0
@@ -72,7 +79,7 @@ class Simulator:
             mats = Rotation.random(num_additional_lat).as_matrix()
             vecs = np.dot(np.array([1, 0, 0])[None], mats)[0]
             ang_sigma = np.random.choice([0.1, 1, 10])
-            angs = np.random.normal(ang_sigma, ang_sigma, num_additional_lat)
+            angs = np.random.normal(0, ang_sigma, num_additional_lat)
             scaled_vecs = vecs*angs[:, None]
             rot_mats = Rotation.from_rotvec(scaled_vecs).as_matrix()
 
@@ -85,7 +92,11 @@ class Simulator:
                 S.D.Amatrix = sim_data.Amatrix_dials2nanoBragg(nominal_crystal)
 
                 S.D.raw_pixels *= 0
-                S.D.add_nanoBragg_spots_cuda()
+                if self.cuda:
+                    S.D.add_nanoBragg_spots_cuda()
+                else:
+                    S.D.add_nanoBragg_spots()
+
                 spots += S.D.raw_pixels.as_numpy_array()
             spots /= (num_additional_lat+1)
 
