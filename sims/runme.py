@@ -2,7 +2,7 @@ from argparse import ArgumentParser
 from argparse import ArgumentDefaultsHelpFormatter as arg_formatter
 parser = ArgumentParser(formatter_class=arg_formatter)
 parser.add_argument("outdir", help="path to output folder (will be created if necessary)", type=str)
-parser.add_argument("cbf", type=str, help="path to cbf or mccd file for setting the simulation geometry")
+parser.add_argument("--geom", type=str, help="path to cbf or mccd file for setting the simulation geometry/mask. If None, default geom from mosflm_geom.py will be used.", default=None)
 parser.add_argument("--seed", default=None, help="random number seed. Default value of None will use int(time.time()) . Seed will be offset by MPI rank, so each rank always has a unique seed amongst all ranks.", type=int)
 parser.add_argument("--ngpu", default=1, type=int, help="number of GPUs on machine")
 parser.add_argument("--nshot", default=15000, type=int, help="number of shots to simulate")
@@ -39,24 +39,31 @@ if args.seed is None:
 np.random.seed(seed_time+COMM.rank)
 
 # load the geometry from provided image file
-loader = dxtbx.load(args.cbf)
-D = loader.get_detector()
-# remove the sensor thickness portion of the geometry 
-D0 = utils.set_detector_thickness(D)
-BEAM = loader.get_beam()
-# which pixel do not contain data
-mask = loader.get_raw_data().as_numpy_array() > 0
-
-# get the detector dimensions (used to determine detector model below)
-xdim,ydim = D0[0].get_image_size()
-
+if args.geom is None:
+    from resonet.sims.mosflm_geom import DET,BEAM
+    # get the detector dimensions (used to determine detector model below)
+    xdim,ydim = DET[0].get_image_size()
+    mask = np.ones((ydim, xdim), bool)
+else:
+    loader = dxtbx.load(args.geom)
+    DET = loader.get_detector()
+    BEAM = loader.get_beam()
+    
+    # remove the sensor thickness portion of the geometry 
+    DET = utils.set_detector_thickness(DET)
+    
+    # get the detector dimensions (used to determine detector model below)
+    xdim,ydim = DET[0].get_image_size()
+    # which pixel do not contain data
+    mask = loader.get_raw_data().as_numpy_array() > 0
+    
 
 # instantiate the simulator class
-HS = Simulator(D0, BEAM, cuda=not args.cpuMode)
+HS = Simulator(DET, BEAM, cuda=not args.cpuMode)
 
 # sample-to-detector distance and pixel size
-detdist = abs(D0[0].get_origin()[2])
-pixsize = D0[0].get_pixel_size()[0]
+detdist = abs(DET[0].get_distance())
+pixsize = DET[0].get_pixel_size()[0]
 
 # GPU device Id for this rank
 dev = COMM.rank % args.ngpu
@@ -94,7 +101,7 @@ with h5py.File(outname, "w") as out:
                                   max_lat=args.maxLat,
                                   dev=dev, mos_dom_override=args.nmos)
         # at what pixel radius does this resolution corresond to
-        radius = reso2radius(params["reso"], D0, BEAM)
+        radius = reso2radius(params["reso"], DET, BEAM)
 
         all_param.append(
             [params["reso"], radius, params["multi_lattice"], params["ang_sigma"], params["num_lat"]])
