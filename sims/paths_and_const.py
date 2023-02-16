@@ -1,7 +1,6 @@
 
 import glob
 import os
-import math
 
 """
 Some constants and file paths for simulations

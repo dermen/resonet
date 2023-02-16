@@ -12,7 +12,7 @@ from resonet.sims import make_sims, make_crystal, paths_and_const
 
 class Simulator:
 
-    def __init__(self, DET, BEAM, cuda=True):
+    def __init__(self, DET, BEAM, cuda=True, verbose=False):
         self.DET = DET
         self.BEAM = BEAM
         # air and water background:
@@ -23,6 +23,7 @@ class Simulator:
         self.nb_beam = make_crystal.load_beam(self.BEAM,
                                       divergence=paths_and_const.DIVERGENCE_MRAD / 1e3 * 180 / np.pi)
         self.cuda=cuda
+        self.verbose = verbose
 
     def simulate(self, rot_mat=None, multi_lattice_chance=0, max_lat=2, mos_min_max=None,
                  pdb_name=None, plastic_stol=None, dev=0, mos_dom_override=None):
@@ -64,7 +65,9 @@ class Simulator:
         S.detector = self.DET
         S.instantiate_nanoBragg(oversample=1)
 
-        #S.D.show_params()
+        if self.verbose:
+            S.D.show_params()
+            print("Simulating spots!", flush=True)
         if self.cuda:
             S.D.device_Id = dev
             S.D.add_nanoBragg_spots_cuda()
@@ -86,7 +89,8 @@ class Simulator:
             nominal_crystal = S.crystal.dxtbx_crystal
             Umat = np.reshape(nominal_crystal.get_U(), (3, 3))
             for i_p, perturb in enumerate(rot_mats):
-                #print("additional multi lattice sim %d" % (i_p+1))
+                if self.verbose:
+                    print("additional multi lattice sim %d" % (i_p+1), flush=True)
                 Umat_p = np.dot(perturb, Umat)
                 nominal_crystal.set_U(tuple(Umat_p.ravel()))
                 S.D.Amatrix = sim_data.Amatrix_dials2nanoBragg(nominal_crystal)
@@ -100,7 +104,8 @@ class Simulator:
                 spots += S.D.raw_pixels.as_numpy_array()
             spots /= (num_additional_lat+1)
 
-        #print("sim random bg")
+        if self.verbose:
+            print("sim random bg", flush=True)
         if plastic_stol is None:
             plastic_stol = np.random.choice(paths_and_const.RANDOM_STOLS)
         else:

@@ -12,6 +12,7 @@ parser.add_argument("--saveRaw", action="store_true", help="Save the raw diffrac
 parser.add_argument("--mosMinMax", nargs=2, type=float, help="minium and maximum mosaic spread (mosaic spreads wil be drawn randomly, bound by these numbers). Default value of None will use MOS_MIN, MOS_MAX from paths_and_const.py")
 parser.add_argument("--nmos", type=int, default=None, help="Number of mosaic blocks for sampling mosaicity. Default value of None will lead to ~1000 blocks per image (see choose_mos method in make_sims.py).")
 parser.add_argument("--cpuMode", action="store_true", help="run computation on CPU (should specify small --nmos to speed up computation)")
+parser.add_argument("--verbose", action="store_true", help="if true, show extra output (for mpi rank0 only)")
 args = parser.parse_args()
 
 from libtbx.mpi4py import MPI
@@ -59,11 +60,13 @@ else:
     
 
 # instantiate the simulator class
-HS = Simulator(DET, BEAM, cuda=not args.cpuMode)
+HS = Simulator(DET, BEAM, cuda=not args.cpuMode,
+               verbose=args.verbose and COMM.rank==0)
 
 # sample-to-detector distance and pixel size
 detdist = abs(DET[0].get_distance())
 pixsize = DET[0].get_pixel_size()[0]
+wavelen = BEAM.get_wavelength()
 
 # GPU device Id for this rank
 dev = COMM.rank % args.ngpu
@@ -121,5 +124,6 @@ with h5py.File(outname, "w") as out:
         if COMM.rank == 0:
             print("Done with shot %d / %d (took %.4f sec)" % (i_shot+1, Nshot, t), flush=True)
     out.create_dataset("labels", data=all_param)
+    out.create_dataset("geom", data=[detdist, pixsize, wavelen, xdim, ydim])
     if COMM.rank == 0:
         print("Done! Takes %.4f sec on average per image" % np.mean(times))
