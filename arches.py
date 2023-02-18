@@ -103,7 +103,7 @@ class RESNetAny(RESNetBase):
     # not used anywhere yet...
 
     def __init__(self, netnum, dev=None, device_id=0, nout=1, dropout=False, ngeom=5, nchan=1,
-                 pretrained=False):
+                 weights = None):
         """
 
         :param netnum: resnet number (18,34,50,101,152)
@@ -113,7 +113,7 @@ class RESNetAny(RESNetBase):
         :param dropout: whether to use dropout layer
         :param ngeom: length of geometry meta-data vector
         :param nchan: number of channels in input image (e.g. RGB images have 3 channels)
-        :param pretrained: whether to use the pretrained resnet models
+        :param weights: whether to use the pretrained resnet models, and specify weights
         """
         super().__init__()
         self.dropout = dropout
@@ -125,15 +125,15 @@ class RESNetAny(RESNetBase):
             self.dev = dev
         self.nout = nout
         if netnum==18:
-            self.resnet = resnet18(pretrained=pretrained).to(self.dev)
+            self.resnet = resnet18(weights = weights).to(self.dev)
         elif netnum==50:
-            self.resnet = resnet50(pretrained=pretrained).to(self.dev)
+            self.resnet = resnet50(weights = weights).to(self.dev)
         elif netnum==34:
-            self.resnet = resnet34(pretrained=pretrained).to(self.dev)
+            self.resnet = resnet34(weights = weights).to(self.dev)
         elif netnum==101:
-            self.resnet=resnet101(pretrained=pretrained).to(self.dev)
+            self.resnet=resnet101(weights = weights).to(self.dev)
         else:
-            self.resnet = resnet152(pretrained=pretrained).to(self.dev)
+            self.resnet = resnet152(weights = weights).to(self.dev)
 
         self.binary = False
         self._set_blocks()
