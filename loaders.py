@@ -85,20 +85,40 @@ class PngDset(Dataset):
 
 class H5SimDataDset(Dataset):
 
-    def __init__(self, h5name, dev=None, labels="labels", images="images", start=None, stop=None,
-                 label_sel=None, invert_labels=None):
+    def __init__(self, h5name, dev=None, labels="labels", images="images",
+                 start=None, stop=None, label_sel=None, use_geom=False):
+        """
+
+        :param h5name: hdf5 master file written by resonet/scripts/merge_h5s.py
+        :param dev: pytorch device
+        :param labels: path to labels dataset
+        :param images: path to images dataset
+        :param start: dataset index to begin
+        :param stop: dataset index to stop
+        :param label_sel: optional list of labels to select. E.g. if labels is a dataset whose
+            shape is (Nsamples,5), e.g. 5 labels per sample, and you want to serve up labels 0 and 2, then
+            you should set label_sel=[0,2]
+            Default is [0], just use the first label
+        :param use_geom: if the `geom` dataset exists, then use each iter should return 3-tuple (labels, images, geom)
+            Otherwise, each iter returns 2-tuple (images,labels)
+            The geom tensor can be used as a secondary input to certain models
+        """
         if label_sel is None:
             label_sel = [0]
         self.nlab = len(label_sel)
         self.label_sel = label_sel
         self.labels_name = labels  #
         self.images_name = images
-        self.invert_labels = invert_labels
         self.h5name = h5name
 
+        self.has_geom = False  # if geometry is present in master file, it can be used as model input
         # open to get length quickly!
         with h5py.File(h5name, "r") as h:
             self.num_images = h[self.images_name].shape[0]
+            self.has_geom = "geom" in list(h.keys())
+        if use_geom and not self.has_geom:
+            raise ValueError("Cannot use geometry if it is not present in the master files. requires `geom` dataset")
+        self.use_geom = use_geom and self.has_geom
 
         self.dev = dev  # pytorch device ID
         if start is None:
@@ -114,16 +134,20 @@ class H5SimDataDset(Dataset):
         self.h5 = None  # handle for hdf5 file
         self.images = None  # hdf5 dataset
         self.labels = None  # hdf5 dataset
+        self.geom = None  # hdf5 dataset
 
     def open(self):
         self.h5 = h5py.File(self.h5name, "r")
         self.images = self.h5[self.images_name]
+        if self.images.dtype!=np.float32:
+            raise ValueError("Images should be type float32!")
         self.labels = self.h5[self.labels_name][:, self.label_sel]
-        if self.invert_labels is None:
-            self.invert_labels = [False]
-        for i, inv in enumerate(self.invert_labels):
-            if inv:
-                self.labels[:,i] = 1/self.labels[:,i]
+        if self.labels.dtype==np.float64:
+            self.labels = self.labels.astype(np.float32)
+        if self.use_geom:
+            self.geom = self.h5["geom"][()]
+            if self.geom.dtype==np.float64:
+                self.geom = self.geom.astype(np.float32)
 
     @property
     def dev(self):
@@ -143,7 +167,12 @@ class H5SimDataDset(Dataset):
         img_dat, img_lab = self.images[i + self.start][None], self.labels[i + self.start]
         img_dat = torch.tensor(img_dat).to(self.dev)
         img_lab = torch.tensor(img_lab).to(self.dev)
-        return img_dat, img_lab
+        if self.use_geom:
+            geom_inputs = self.geom[i+self.start]
+            geom_inputs = torch.tensor(geom_inputs).to(self.dev)
+            return img_dat, img_lab, geom_inputs
+        else:
+            return img_dat, img_lab
 
     def nlab(self):
         return self.nlab
@@ -217,11 +246,6 @@ class H5Loader:
 
     def _reduce_bcast(self, arr):
         return self.comm.bcast(self.comm.reduce(arr))
-
-
-
-
-
 
 
 if __name__=="__main__":

@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 import torch
 
 from resonet.loaders import PngDset
-from resonet.arches import RESNet50
+from resonet import arches
 import torch.nn as nn
 import torch.optim as optim
 
@@ -30,7 +30,7 @@ test_tens = DataLoader(test_imgs, batch_size=16, shuffle=False)
 
 
 # instantiate model
-nety = RESNet50(nout=1, dev=dev)
+nety = arches.res50(nout=1, dev=dev)
 criterion = nn.L1Loss()
 optimizer = optim.SGD(nety.parameters(), lr=1e-3, momentum=0.9)
 

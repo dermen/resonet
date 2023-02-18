@@ -12,7 +12,7 @@ def get_args():
     parser.add_argument("--bs", type=int,default=16, help="batch size")
     parser.add_argument("--loss", type=str, choices=["L1", "L2", "BCE", "BCE2"], default="L1", help="loss function selector")
     parser.add_argument("--saveFreq", type=int, default=10, help="how often to write the model to disk")
-    parser.add_argument("--arch", type=str, choices=["le", "res18", "res50" ,"res50bc", "res34", "res101", "res152"],
+    parser.add_argument("--arch", type=str, choices=["le", "res18", "res50", "res34", "res101", "res152"],
                         default="res50", help="architecture selector")
     parser.add_argument("--loglevel", type=str, 
             choices=["debug", "info", "critical"], default="info", help="python logger level")
@@ -27,6 +27,7 @@ def get_args():
     parser.add_argument("--momentum", type=float, default=0.9, help="momentum for SGD optimizer")
     parser.add_argument("--nesterov", action="store_true", help="use nesterov momentum (SGD)")
     parser.add_argument("--damp", type=float, default=0, help="dampening (SGD)")
+    parser.add_argument("--useGeom", action="store_true", help="if geom is included as a dataset in the input file, use it for training")
     args = parser.parse_args()
     if hasattr(args, "h") or hasattr(args, "help"):
         parser.print_help()
@@ -98,10 +99,14 @@ def validate(input_tens, model, epoch, criterion, COMM=None):
     all_lab = []
     all_pred = []
     all_loss = []
-    for i,(data,labels) in enumerate(input_tens):
+    for i,tensors in enumerate(input_tens):
+        data = (tensors[0],)
+        labels = tensors[1]
+        if len(tensors)==3:
+            data = data + (tensors[2],)
         if COMM is None or COMM.rank==0:
             print("validation batch %d"% i,end="\r", flush=True)
-        pred = model(data)
+        pred = model(*data)
 
         loss = criterion(pred, labels)
         all_loss.append(loss.item())
@@ -220,7 +225,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
          loglevel="info",
          display=True, save_freq=10,
          num_workers=1,
-         title=None, COMM=None, ngpu_per_node=1):
+         title=None, COMM=None, ngpu_per_node=1, use_geom=False):
 
     # model and criterion choices
 
@@ -254,14 +259,15 @@ def do_training(h5input, h5label, h5imgs, outdir,
         dev = "cuda:%d" % gpuid
 
     train_imgs = H5SimDataDset(h5input,  dev=dev, labels=h5label, images=h5imgs,
-                           start=train_start, stop=train_stop)
+                           start=train_start, stop=train_stop, use_geom=use_geom)
     train_imgs_validate = H5SimDataDset(h5input,dev=dev,  labels=h5label, images=h5imgs,
-                                    start=train_start, stop=train_start+ntest)
+                                    start=train_start, stop=train_start+ntest, use_geom=use_geom)
     test_imgs = H5SimDataDset(h5input, dev=dev, labels=h5label, images=h5imgs,
-                          start=test_start, stop=test_stop)
+                          start=test_start, stop=test_stop, use_geom=use_geom)
 
-    #instantiate model
-    nety = ARCHES[arch](nout=train_imgs.nlab, dev=train_imgs.dev, dropout=dropout)
+    # instantiate model
+    # TODO make geometry length a variable (for now its always [detdist, pixsize, wavelen, fastdim, slowdim]
+    nety = ARCHES[arch](nout=train_imgs.nlab, dev=train_imgs.dev, dropout=dropout, ngeom=5)
     if COMM is not None:
         nety = torch.nn.SyncBatchNorm.convert_sync_batchnorm(nety)
         nety = nn.parallel.DistributedDataParallel(nety, device_ids=[gpuid], 
@@ -333,15 +339,19 @@ def do_training(h5input, h5label, h5imgs, outdir,
         if COMM is not None:  # or if train_tens.sampler is not None
             train_tens.sampler.set_epoch(epoch)
 
-        for i, (data, labels) in enumerate(train_tens):
-            
+        for i, tensors in enumerate(train_tens):
+            data = (tensors[0],)
+            labels = tensors[1]
+            if len(tensors) == 3:
+                data = data + (tensors[2],)
+
             if COMM is None or COMM.rank==0:
                 print("Training Epoch %d batch %d/%d" \
                     % (epoch+1, i+1, nbatch), flush=True)
 
             optimizer.zero_grad()
 
-            outputs = nety(data)
+            outputs = nety(*data)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
@@ -427,7 +437,8 @@ if __name__ == "__main__":
                 lr=args.lr, bs=args.bs, ep=args.ep,
                 arch=args.arch, loss=args.loss,
                 logfile=args.logfile, loglevel=args.loglevel,
-                display=not args.noDisplay, save_freq=args.saveFreq)
+                display=not args.noDisplay, save_freq=args.saveFreq,
+                use_geom=args.useGeom)
 
 #   TODO
 #   BINARY IMAGE CLASSIFIER -> get in the ballpark
