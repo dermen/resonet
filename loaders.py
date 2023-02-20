@@ -40,7 +40,6 @@ class PngDset(Dataset):
             self.prop.loc[:,"reso"] = 1/self.prop.reso
 
         self.labels = self.prop[["num", "reso"]]
-
         self.dev = dev  # pytorch device ID
 
         Ntotal = len(self.fnames)
@@ -79,7 +78,6 @@ class PngDset(Dataset):
 
         num = self.nums[i+self.start]
         img_lab = self.labels.query("num==%d" % num).reso
-
         img_dat = torch.tensor(img_dat[:512,:512][None]).to(self.dev)
         img_lab = torch.tensor(img_lab.values).to(self.dev)
         # Apply image transform here
