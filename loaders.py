@@ -14,13 +14,15 @@ from PIL import Image
 class PngDset(Dataset):
 
     def __init__(self, pngdir=None, propfile=None, quad="A", start=None, stop=None,
-                 dev=None, invert_res=True):
+                 dev=None, invert_res=True,transform = None):
         if pngdir is None:
             pngdir = "/global/cfs/cdirs/m3992/png/"
         if propfile is None:
             propfile = "/global/cfs/cdirs/m3992/png/num_reso_mos_B_icy1_icy2_cell_SGnum_pdbid_stolid.txt"
         if dev is None:
             dev = "cuda:0"
+        
+        self.transform = transform
 
         self.fnames = glob.glob(os.path.join(pngdir, "*%s.png" % quad))
         assert self.fnames
@@ -38,7 +40,6 @@ class PngDset(Dataset):
             self.prop.loc[:,"reso"] = 1/self.prop.reso
 
         self.labels = self.prop[["num", "reso"]]
-
         self.dev = dev  # pytorch device ID
 
         Ntotal = len(self.fnames)
@@ -77,9 +78,11 @@ class PngDset(Dataset):
 
         num = self.nums[i+self.start]
         img_lab = self.labels.query("num==%d" % num).reso
-
         img_dat = torch.tensor(img_dat[:512,:512][None]).to(self.dev)
         img_lab = torch.tensor(img_lab.values).to(self.dev)
+        # Apply image transform here
+        if self.transform:
+            img_dat = self.transform(img_dat)
         return img_dat, img_lab
 
 
