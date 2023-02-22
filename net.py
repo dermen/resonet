@@ -2,7 +2,7 @@ from argparse import ArgumentParser
 from argparse import ArgumentDefaultsHelpFormatter as arg_formatter
 
 
-def get_args():
+def get_parser():
     parser = ArgumentParser(formatter_class=arg_formatter)
     parser.add_argument("ep", type=int, help="number of epochs")
     parser.add_argument("input", type=str, help="input training data h5 file")
@@ -28,12 +28,8 @@ def get_args():
     parser.add_argument("--nesterov", action="store_true", help="use nesterov momentum (SGD)")
     parser.add_argument("--damp", type=float, default=0, help="dampening (SGD)")
     parser.add_argument("--useGeom", action="store_true", help="if geom is included as a dataset in the input file, use it for training")
-    args = parser.parse_args()
-    if hasattr(args, "h") or hasattr(args, "help"):
-        parser.print_help()
-        sys.exit()
 
-    return parser.parse_args()
+    return parser
 
 
 import time
@@ -115,7 +111,7 @@ def validate(input_tens, model, epoch, criterion, COMM=None):
             pred = torch.round(torch.sigmoid(pred))
         else:
             errors = (pred-labels).abs()/labels
-            is_accurate = errors < .3
+            is_accurate = errors < .05
             nacc += is_accurate.all(dim=1).sum().item()
             total += len(labels)
 
@@ -417,7 +413,10 @@ def do_training(h5input, h5label, h5imgs, outdir,
 
 
 if __name__ == "__main__":
-    args = get_args()
+    args = get_parser().parse_args()
+    if hasattr(args, "h") or hasattr(args, "help"):
+        parser.print_help()
+        sys.exit()
 
     train_start_stop = test_start_stop = None
     if args.quickTest:
