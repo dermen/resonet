@@ -126,12 +126,11 @@ def validate(input_tens, model, epoch, criterion, COMM=None):
         all_lab = COMM.bcast(COMM.reduce(all_lab))
         all_pred = COMM.bcast(COMM.reduce(all_pred))
         all_loss = COMM.bcast(COMM.reduce(all_loss))
+        nacc = COMM.bcast(COMM.reduce(nacc))
+        total = COMM.bcast(COMM.reduce(total))
 
     all_lab = np.array(all_lab).T
     all_pred = np.array(all_pred).T
-    if COMM is None or COMM.rank==0:
-        print("Number of samples:" , all_lab.shape)
-        print("\n")
 
     if not using_bce:
         acc = nacc / total*100.
@@ -271,7 +270,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
     if COMM is not None:
         nety = torch.nn.SyncBatchNorm.convert_sync_batchnorm(nety)
         nety = nn.parallel.DistributedDataParallel(nety, device_ids=[gpuid], 
-            find_unused_parameters= arch in ["le"])
+            find_unused_parameters= arch in ["le", "res50"])
 
 
     criterion = LOSSES[loss]()

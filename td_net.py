@@ -2,8 +2,6 @@
 from mpi4py import MPI
 COMM = MPI.COMM_WORLD
 
-#import torch.distributed as td
-
 from resonet import net
 from resonet.utils import ddp, mpi
 
@@ -11,8 +9,6 @@ args = None
 if COMM.rank==0:
     args = net.get_args()
 args = COMM.bcast(args)
-
-
 
 LOCAL_COMM = mpi.get_host_comm()
 ngpu_per_node=LOCAL_COMM.size
@@ -32,4 +28,5 @@ net.do_training(args.input, args.labelName, args.imgsName, args.outdir,
             arch=args.arch, loss=args.loss,
             logfile=args.logfile, loglevel=args.loglevel,
             display=True, save_freq=args.saveFreq,
-            COMM=COMM, ngpu_per_node=ngpu_per_node)
+            COMM=COMM, ngpu_per_node=ngpu_per_node,
+            use_geom=args.useGeom)
