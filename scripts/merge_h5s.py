@@ -1,11 +1,14 @@
 import h5py
 import glob
 import os
+import numpy as np
 
 from argparse import ArgumentParser
 parser = ArgumentParser()
-parser.add_argument("dirnames", nargs="+", type=str)
-parser.add_argument("outname", type=str)
+parser.add_argument("dirnames", nargs="+", type=str, help="output folders from runme.py or runme_joblib.py")
+parser.add_argument("outname", type=str, help="name of the  master file")
+parser.add_argument("--shuffle", action="store_true", help="optionally shuffle the input files before virtualizing (influences order in master file)")
+parser.add_argument("--moreKeys", nargs="+", type=str, default=[], help="names of additional datasets to virtualize. These should be present in all rank* files!")
 args = parser.parse_args()
 
 """
@@ -27,7 +30,7 @@ if has_geom:
     ngeom_params = dummie_h["geom"].shape[0]
 
 shapes = {}
-for key in ["images_mean", "images", "labels"]:
+for key in ["images_mean", "images", "labels"] + args.moreKeys:
     try:
         shapes[key] = dummie_h[key].shape[1:] 
     except KeyError:
@@ -43,6 +46,8 @@ for key, shape in shapes.items():
 if ngeom_params:
     Layouts["geom"] = h5py.VirtualLayout(shape=(total_imgs, ngeom_params), dtype=dummie_h['geom'].dtype)
 
+Sources = {}
+records = []
 start = 0
 for i_f, f in enumerate(fnames):
     print("virtualizing file %d / %d" % (i_f+1, len(fnames)))
@@ -52,11 +57,14 @@ for i_f, f in enumerate(fnames):
             continue
         vsource = h5py.VirtualSource(f, key, shape=(nimg,) + shapes[key])
         Layouts[key][start:start+nimg] = vsource
+        Sources[(key, f)] = vsource
 
     if ngeom_params:
         geom_source = h5py.VirtualSource(f, "geom", shape=(ngeom_params,))
         for i_img in range(nimg):
             Layouts["geom"][start+i_img] = geom_source
+
+        Sources[("geom", f)] = geom_source
 
     start += nimg
 
@@ -65,5 +73,23 @@ print("Total number of shots=%d" % total_imgs)
 with h5py.File(args.outname, "w") as H:
     for key in Layouts:
         H.create_virtual_dataset(key, Layouts[key])
+
+if args.shuffle:
+    Sources = {}
+    if ngeom_params:
+        Sources["geom"] =h5py.VirtualSource(args.outname, "geom", shape=(total_imgs,ngeom_params))
+    for key in shapes:
+        Sources[key] = h5py.VirtualSource(args.outname, key, shape=(total_imgs,) + shapes[key])
+
+    names = set(Sources).intersection(Layouts)
+    print("Shuffle virtual sets:\n\t", names)
+    order = np.random.permutation(total_imgs)
+    for i_new, i_old in enumerate(order):
+        for name in names:
+            Layouts[name][i_new] = Sources[name][i_old]
+
+    with h5py.File(args.outname, "r+") as H:
+        for key in Layouts:
+            H.create_virtual_dataset(key+".shuff", Layouts[key])
 
 print("Done!")
