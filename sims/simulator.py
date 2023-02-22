@@ -81,8 +81,11 @@ class Simulator:
             num_additional_lat = np.random.choice(range(1,max_lat))
             mats = Rotation.random(num_additional_lat).as_matrix()
             vecs = np.dot(np.array([1, 0, 0])[None], mats)[0]
-            ang_sigma = np.random.choice([0.1, 1, 10])
-            angs = np.random.normal(0, ang_sigma, num_additional_lat)
+            #std_angs = 0
+            #while (std_angs < 3):
+            angs = np.random.uniform(1, 180, num_additional_lat)
+            #    std_angs = np.std(angs)
+            ang_sigma = np.std(np.append(angs,[0]))
             scaled_vecs = vecs*angs[:, None]
             rot_mats = Rotation.from_rotvec(scaled_vecs).as_matrix()
 
