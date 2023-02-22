@@ -28,7 +28,8 @@ def get_parser():
     parser.add_argument("--nesterov", action="store_true", help="use nesterov momentum (SGD)")
     parser.add_argument("--damp", type=float, default=0, help="dampening (SGD)")
     parser.add_argument("--useGeom", action="store_true", help="if geom is included as a dataset in the input file, use it for training")
-
+    parser.add_argument("--error",type=float, default=0.3, help="the error threshold the model consider accurate")
+    parser.add_argument("--weights",type = str, choices = ["IMAGENET1K_V2","IMAGENET1K_V1"], help="whether use pretrained weights")
     return parser
 
 
@@ -82,7 +83,7 @@ def get_logger(filename=None, level="info", do_nothing=False):
     return logger
 
 
-def validate(input_tens, model, epoch, criterion, COMM=None):
+def validate(input_tens, model, epoch, criterion, COMM=None, error = 0.3):
     """
     tens is return value of tensorloader
     TODO make validation multi-channel (e.g. average accuracy over all labels)
@@ -111,7 +112,7 @@ def validate(input_tens, model, epoch, criterion, COMM=None):
             pred = torch.round(torch.sigmoid(pred))
         else:
             errors = (pred-labels).abs()/labels
-            is_accurate = errors < .05
+            is_accurate = errors < error
             nacc += is_accurate.all(dim=1).sum().item()
             total += len(labels)
 
@@ -221,10 +222,9 @@ def do_training(h5input, h5label, h5imgs, outdir,
          loglevel="info",
          display=True, save_freq=10,
          num_workers=1,
-         title=None, COMM=None, ngpu_per_node=1, use_geom=False):
+         title=None, COMM=None, ngpu_per_node=1, use_geom=False, error = 0.3, weights = None):
 
     # model and criterion choices
-
     assert loglevel in ["info", "debug", "critical"]
 
     assert arch in ARCHES
@@ -263,7 +263,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
 
     # instantiate model
     # TODO make geometry length a variable (for now its always [detdist, pixsize, wavelen, fastdim, slowdim]
-    nety = ARCHES[arch](nout=train_imgs.nlab, dev=train_imgs.dev, dropout=dropout, ngeom=5)
+    nety = ARCHES[arch](nout=train_imgs.nlab, dev=train_imgs.dev, dropout=dropout, ngeom=5, weights = weights)
     if COMM is not None:
         nety = torch.nn.SyncBatchNorm.convert_sync_batchnorm(nety)
         nety = nn.parallel.DistributedDataParallel(nety, device_ids=[gpuid], 
@@ -373,9 +373,9 @@ def do_training(h5input, h5label, h5imgs, outdir,
         nety.eval()
         with torch.no_grad():
             logger.info("Computing test accuracy:")
-            acc,test_loss, test_lab, test_pred = validate(test_tens, nety, epoch, criterion, COMM)
+            acc,test_loss, test_lab, test_pred = validate(test_tens, nety, epoch, criterion, COMM, error = error)
             logger.info("Computing train accuracy:")
-            train_acc,train_loss,_,_ = validate(train_tens_validate, nety, epoch, criterion, COMM)
+            train_acc,train_loss,_,_ = validate(train_tens_validate, nety, epoch, criterion, COMM, error = error)
 
             mx_acc = max(acc, mx_acc)
             
@@ -437,7 +437,7 @@ if __name__ == "__main__":
                 arch=args.arch, loss=args.loss,
                 logfile=args.logfile, loglevel=args.loglevel,
                 display=not args.noDisplay, save_freq=args.saveFreq,
-                use_geom=args.useGeom)
+                use_geom=args.useGeom, error = args.error, weights = args.weights)
 
 #   TODO
 #   BINARY IMAGE CLASSIFIER -> get in the ballpark
