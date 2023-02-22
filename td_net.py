@@ -7,7 +7,7 @@ from resonet.utils import ddp, mpi
 
 args = None
 if COMM.rank==0:
-    args = net.get_args()
+    args = net.get_parser().parse_args()
 args = COMM.bcast(args)
 
 LOCAL_COMM = mpi.get_host_comm()
@@ -29,4 +29,4 @@ net.do_training(args.input, args.labelName, args.imgsName, args.outdir,
             logfile=args.logfile, loglevel=args.loglevel,
             display=True, save_freq=args.saveFreq,
             COMM=COMM, ngpu_per_node=ngpu_per_node,
-            use_geom=args.useGeom)
+            use_geom=args.useGeom,weights = args.weights,error = args.error)
