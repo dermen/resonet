@@ -89,7 +89,7 @@ class PngDset(Dataset):
 class H5SimDataDset(Dataset):
 
     def __init__(self, h5name, dev=None, labels="labels", images="images",
-                 start=None, stop=None, label_sel=None, use_geom=False):
+                 start=None, stop=None, label_sel=None, use_geom=False, transform = None):
         """
 
         :param h5name: hdf5 master file written by resonet/scripts/merge_h5s.py
@@ -113,7 +113,7 @@ class H5SimDataDset(Dataset):
         self.labels_name = labels  #
         self.images_name = images
         self.h5name = h5name
-
+        self.transform = transform
         self.has_geom = False  # if geometry is present in master file, it can be used as model input
         # open to get length quickly!
         with h5py.File(h5name, "r") as h:
@@ -169,6 +169,9 @@ class H5SimDataDset(Dataset):
             self.open()
         img_dat, img_lab = self.images[i + self.start][None], self.labels[i + self.start]
         img_dat = torch.tensor(img_dat).to(self.dev)
+        # if we are applying image augmentation
+        if self.transform:
+            img_dat = self.transform(img_dat)
         img_lab = torch.tensor(img_lab).to(self.dev)
         if self.use_geom:
             geom_inputs = self.geom[i+self.start]
