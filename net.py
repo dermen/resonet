@@ -56,10 +56,12 @@ from resonet import arches
 
 def get_logger(filename=None, level="info", do_nothing=False):
     """
-
     :param filename: optionally log to a file
     :param level: logging level of the console (info, debug or critical)
-     do_nothing: return a logger that doesnt actually log (for non-root processes)
+        INFO: Confirmation that things are working as expected.
+        DEBUG: Detailed information, typically of interest only when diagnosing problems
+        CRITICAL: A serious error, indicating that the program itself may be unable to continue running.
+    :param do_nothing: return a logger that doesnt actually log (for non-root processes)
     :return:
     """
     levels = {"info": 20, "debug": 10, "critical": 50}
