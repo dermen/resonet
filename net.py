@@ -28,8 +28,9 @@ def get_parser():
     parser.add_argument("--nesterov", action="store_true", help="use nesterov momentum (SGD)")
     parser.add_argument("--damp", type=float, default=0, help="dampening (SGD)")
     parser.add_argument("--useGeom", action="store_true", help="if geom is included as a dataset in the input file, use it for training")
-    parser.add_argument("--error",type=float, default=0.3, help="the error threshold the model consider accurate")
+    parser.add_argument("--error",type=float, default=0.07, help="the error threshold the model consider accurate")
     parser.add_argument("--weights",type = str, choices = ["IMAGENET1K_V2","IMAGENET1K_V1"], help="whether use pretrained weights")
+    parser.add_argument("--transform", action="store_true", help="whether use data augmentation")
     return parser
 
 
@@ -47,7 +48,7 @@ import torch.optim as optim
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
 from torchmetrics.classification import BinaryJaccardIndex
-
+from torchvision import transforms
 
 from resonet.params import ARCHES, LOSSES
 from resonet.loaders import H5SimDataDset
@@ -223,7 +224,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
          loglevel="info",
          display=True, save_freq=10,
          num_workers=1,
-         title=None, COMM=None, ngpu_per_node=1, use_geom=False, error = 0.3, weights = None):
+         title=None, COMM=None, ngpu_per_node=1, use_geom=False, error = 0.3, weights = None, use_transform = False):
 
     # model and criterion choices
     assert loglevel in ["info", "debug", "critical"]
@@ -255,8 +256,17 @@ def do_training(h5input, h5label, h5imgs, outdir,
         gpuid = COMM.rank % ngpu_per_node
         dev = "cuda:%d" % gpuid
 
+    # Temporariliy define transform here
+    if use_transform:
+        transform = transforms.Compose([
+                    transforms.RandomHorizontalFlip(),
+                    transforms.RandomRotation(90),
+                    ])
+    else:
+        transform = None
+
     train_imgs = H5SimDataDset(h5input,  dev=dev, labels=h5label, images=h5imgs,
-                           start=train_start, stop=train_stop, use_geom=use_geom)
+                           start=train_start, stop=train_stop, use_geom=use_geom, transform = transform)
     train_imgs_validate = H5SimDataDset(h5input,dev=dev,  labels=h5label, images=h5imgs,
                                     start=train_start, stop=train_start+ntest, use_geom=use_geom)
     test_imgs = H5SimDataDset(h5input, dev=dev, labels=h5label, images=h5imgs,
@@ -438,7 +448,7 @@ if __name__ == "__main__":
                 arch=args.arch, loss=args.loss,
                 logfile=args.logfile, loglevel=args.loglevel,
                 display=not args.noDisplay, save_freq=args.saveFreq,
-                use_geom=args.useGeom, error = args.error, weights = args.weights)
+                use_geom=args.useGeom, error = args.error, weights = args.weights, use_transform = args.transform)
 
 #   TODO
 #   BINARY IMAGE CLASSIFIER -> get in the ballpark
