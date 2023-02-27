@@ -424,7 +424,8 @@ def do_training(h5input, h5label, h5imgs, outdir,
 
 
 if __name__ == "__main__":
-    args = get_parser().parse_args()
+    parser = get_parser()
+    args = parser.parse_args()
     if hasattr(args, "h") or hasattr(args, "help"):
         parser.print_help()
         sys.exit()
