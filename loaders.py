@@ -14,7 +14,7 @@ from PIL import Image
 class PngDset(Dataset):
 
     def __init__(self, pngdir=None, propfile=None, quad="A", start=None, stop=None,
-                 dev=None, invert_res=True, transform=None, convert_res=False):
+                 dev=None, invert_res=False, transform=None, convert_res=False):
         """
 
         :param pngdir: path to folder resmos2 containing PNG files
