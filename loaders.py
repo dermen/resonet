@@ -14,11 +14,26 @@ from PIL import Image
 class PngDset(Dataset):
 
     def __init__(self, pngdir=None, propfile=None, quad="A", start=None, stop=None,
-                 dev=None, invert_res=True,transform = None):
+                 dev=None, invert_res=True, transform=None, convert_res=False):
+        """
+
+        :param pngdir: path to folder resmos2 containing PNG files
+        :param propfile: path to property file num_reso_mos_B_icy1_icy2_cell_SGnum_pdbid_stolid.txt
+        :param quad: 'A','B','C' or 'D', image quadrant to use
+        :param start: lower bound for range of PNGs to load
+        :param stop: upper bound for range of PNGs to load
+        :param dev: pytorch device string e.g.  'cuda:0'
+        :param invert_res: whether to invert the resolution
+        :param transform: whether to apply image transformations
+        :param convert_res: whether to convert resolution labels to radii
+        """
+        if invert_res and convert_res:
+            raise ValueError("Only one of invert_res or convert_res should be True")
+        assert not invert_res and convert_res
         if pngdir is None:
-            pngdir = "/global/cfs/cdirs/m3992/png/"
+            pngdir = "."
         if propfile is None:
-            propfile = "/global/cfs/cdirs/m3992/png/num_reso_mos_B_icy1_icy2_cell_SGnum_pdbid_stolid.txt"
+            propfile = "num_reso_mos_B_icy1_icy2_cell_SGnum_pdbid_stolid.txt"
         if dev is None:
             dev = "cuda:0"
         
@@ -39,6 +54,9 @@ class PngDset(Dataset):
         if invert_res:
             self.prop.loc[:,"reso"] = 1/self.prop.reso
 
+        if convert_res:
+            self.prop.loc[:, "reso"] = self._convert_res2rad(self.prop.reso)
+
         self.labels = self.prop[["num", "reso"]]
         self.dev = dev  # pytorch device ID
 
@@ -52,6 +70,22 @@ class PngDset(Dataset):
         assert stop > start
         self.start = start
         self.stop = stop
+
+    def _convert_res2rad(self, res):
+        """
+        :param res: resolutions (in Angstroms) from the resmos2 labels
+        :return: corresponding radii
+        """
+        detdist = 200 # mm
+        pixsize = 0.075 # mm
+        pixsize = pixsize*4  # downsample term
+        wavelen = 0.977794  # angstrom
+        # from Braggs law, we know:
+        theta = np.arcsin(wavelen*.5/res)
+
+        # from trig we know
+        rad = np.tan(2*theta)*detdist/pixsize
+        return rad
 
     @staticmethod
     def get_num(f):
