@@ -424,11 +424,8 @@ def do_training(h5input, h5label, h5imgs, outdir,
 
 
 if __name__ == "__main__":
-    args = get_parser().parse_args()
-    if hasattr(args, "h") or hasattr(args, "help"):
-        parser.print_help()
-        sys.exit()
-
+    parser = get_parser()
+    args = parser.parse_args()
     train_start_stop = test_start_stop = None
     if args.quickTest:
         train_start_stop = 2000, 2100
