@@ -27,7 +27,6 @@ def test_resnet_wrapper():
     nout=2
     ngeom=6
     nchan=2
-    bs=4
     dev="cuda:0"
     model = params.res50(nout=nout, ngeom=ngeom, nchan=nchan, dev=dev, pretrained=True)
     model2 = arches.RESNetAny(netnum=50,nout=nout, nchan=nchan, ngeom=ngeom, dev=dev, pretrained=True)

@@ -4,7 +4,7 @@ from abc import abstractmethod
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
-from torchvision.models import resnet18, resnet50, resnet34, resnet101, resnet152
+from torchvision import models #resnet18, resnet50, resnet34, resnet101, resnet152
 
 
 class RESNetBase(nn.Module):
@@ -124,16 +124,11 @@ class RESNetAny(RESNetBase):
         else:
             self.dev = dev
         self.nout = nout
-        if netnum==18:
-            self.resnet = resnet18(weights = weights).to(self.dev)
-        elif netnum==50:
-            self.resnet = resnet50(weights = weights).to(self.dev)
-        elif netnum==34:
-            self.resnet = resnet34(weights = weights).to(self.dev)
-        elif netnum==101:
-            self.resnet=resnet101(weights = weights).to(self.dev)
-        else:
-            self.resnet = resnet152(weights = weights).to(self.dev)
+        model = getattr(models, "resnet%d" % netnum)
+        try:
+            self.resnet = model(weights=weights).to(self.dev)
+        except TypeError:
+            self.resnet = model().to(self.dev)
 
         self.binary = False
         self._set_blocks()
