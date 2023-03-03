@@ -29,7 +29,7 @@ class PngDset(Dataset):
         """
         if invert_res and convert_res:
             raise ValueError("Only one of invert_res or convert_res should be True")
-        assert not invert_res and convert_res
+        assert not (invert_res and convert_res)
         if pngdir is None:
             pngdir = "."
         if propfile is None:

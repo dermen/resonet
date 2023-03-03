@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 import torch
 
 from resonet.loaders import PngDset
-from resonet import arches
+from resonet import params
 import torch.nn as nn
 import torch.optim as optim
 
@@ -20,9 +20,9 @@ propfile = "/home/rstofer/dials_project/Downloads/num_reso_mos_B_icy1_icy2_cell_
 # test on images 8k-9k (we will tune hyper parameters like learning rate to predict these images well)
 # secondary test set will be from 9k+ (these test how generalizable our hyper parameter tuning is)
 dev = "cuda:0"
-train_imgs = PngDset(pngdir=pngdir, propfile=propfile, start=0, stop=8000, dev=dev)
-train_imgs_validate = PngDset(pngdir=pngdir, propfile=propfile, start=0, stop=1000, dev=dev)
-test_imgs = PngDset(pngdir=pngdir, propfile=propfile, start=8000, stop=9000, dev=dev)
+train_imgs = PngDset(pngdir=pngdir, propfile=propfile, start=0, stop=8000, dev=dev, convert_res=True)
+train_imgs_validate = PngDset(pngdir=pngdir, propfile=propfile, start=0, stop=1000, dev=dev, convert_res=True)
+test_imgs = PngDset(pngdir=pngdir, propfile=propfile, start=8000, stop=9000, dev=dev, convert_res=True)
 
 train_tens = DataLoader(train_imgs, batch_size=16, shuffle=True)
 train_tens_validate = DataLoader(train_imgs_validate, batch_size=16, shuffle=False)
@@ -30,9 +30,9 @@ test_tens = DataLoader(test_imgs, batch_size=16, shuffle=False)
 
 
 # instantiate model
-nety = arches.res50(nout=1, dev=dev)
+nety = params.res50(nout=1, dev=dev)
 criterion = nn.L1Loss()
-optimizer = optim.SGD(nety.parameters(), lr=1e-3, momentum=0.9)
+optimizer = optim.SGD(nety.parameters(), lr=1e-4, momentum=0.9)
 
 
 def validate(input_tens, model, epoch, criterion):

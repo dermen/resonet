@@ -7,6 +7,7 @@ import warnings
 from resonet import arches
 from resonet import params
 
+
 class TestModels:
 
     def test_resnet50_gpu(self):
