@@ -4,26 +4,11 @@ from argparse import ArgumentParser
 from argparse import ArgumentDefaultsHelpFormatter as arg_formatter
 from argparse import Namespace
 import pytest
-
-import time
-import os
+import io
 import sys
-import h5py
 import numpy as np
 import logging
-from scipy.stats import pearsonr, spearmanr
-import pylab as plt
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data.distributed import DistributedSampler
-from torch.utils.data import DataLoader
-from torchmetrics.classification import BinaryJaccardIndex
-
-
 from resonet.params import ARCHES, LOSSES
-from resonet.loaders import H5SimDataDset
-from resonet import arches
 
 class TestNet:
 
@@ -46,6 +31,41 @@ class TestNet:
             parsed = parser.parse_args(['data.h5','output_dir']) # invalid 'ep' argument
         print('# test with missing arguments 2 passed!')
 
+    def test_get_parser_optional_args(self):
+        parser = get_parser()
+        # test with valid input
+        parsed = parser.parse_args(['10', 'data.h5','output_dir','--lr','0.01'])
+        assert parsed.ep == 10
+        assert parsed.input == 'data.h5'
+        assert parsed.outdir == 'output_dir'
+        assert parsed.lr == 0.01
+        print('# test with valid input passed!')
+
+        # test with invalid input
+        with pytest.raises(SystemExit):
+            parsed = parser.parse_args(['10', 'data.h5','output_dir','--lr','0.01','--netnum','19'])
+
+    def test_help_option(self):
+        # Capture stdout
+        stdout = io.StringIO()
+        sys.stdout = stdout
+        parser = get_parser()
+        try:
+            with pytest.raises(SystemExit):
+                parsed = parser.parse_args(['-h'])
+        finally:
+            # Reset stdout
+            sys.stdout = sys.__stdout__
+
+        output = stdout.getvalue()
+        
+        # chekcing if the help message contains the following
+        assert 'number of epochs' in output
+        assert 'input training data h5 file' in output
+        assert 'store output files here (will create if necessary)' in output
+        assert 'learning rate (important!)' in output
+
+
     def test_get_logger(self):
         # Test case 1
         logger = get_logger()
@@ -67,4 +87,6 @@ class TestNet:
         assert logger.name == 'root'
         assert logger.level == logging.CRITICAL
         print('# test case 3 passed!')
+    
+    
     
