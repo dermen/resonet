@@ -13,8 +13,6 @@ import torch.optim as optim
 
 pngdir = "/home/rstofer/dials_project/png"
 propfile = "/home/rstofer/dials_project/Downloads/num_reso_mos_B_icy1_icy2_cell_SGnum_pdbid_stolid.txt"
-pngdir="/global/cfs/cdirs/m3992/png"
-propfile="/global/cfs/cdirs/m3992/png/num_reso_mos_B_icy1_icy2_cell_SGnum_pdbid_stolid.txt"
 
 # breakdown of images
 # first 8k images for training
