@@ -11,6 +11,9 @@ Some constants and file paths for simulations
 # to convert to P1
 
 dirname = os.environ.get("RESONET_SIMDATA")
+if dirname is None:
+    print("Warning, RESONET_SIMDATA is not set, simulation might not work!")
+    dirname="."
 
 # these are scattering profiles for random plastics (from James Holton)
 RANDOM_STOLS = glob.glob(os.path.join(dirname, "randomstols/*stol"))
