@@ -14,7 +14,7 @@ from PIL import Image
 class PngDset(Dataset):
 
     def __init__(self, pngdir=None, propfile=None, quad="A", start=None, stop=None,
-                 dev=None, invert_res=False, transform=None, convert_res=False):
+                 dev=None, invert_res=False, transform=None, convert_res=False, use_float=True):
         """
 
         :param pngdir: path to folder resmos2 containing PNG files
@@ -26,10 +26,8 @@ class PngDset(Dataset):
         :param invert_res: whether to invert the resolution
         :param transform: whether to apply image transformations
         :param convert_res: whether to convert resolution labels to radii
+        :param use_float: convert tensors to single precision. This is necessary for MSELoss
         """
-        if invert_res and convert_res:
-            raise ValueError("Only one of invert_res or convert_res should be True")
-        assert not (invert_res and convert_res)
         if pngdir is None:
             pngdir = "."
         if propfile is None:
@@ -37,6 +35,8 @@ class PngDset(Dataset):
         if dev is None:
             dev = "cuda:0"
         
+        self.use_float = use_float
+
         self.transform = transform
 
         self.fnames = glob.glob(os.path.join(pngdir, "*%s.png" % quad))
@@ -51,11 +51,11 @@ class PngDset(Dataset):
             names=["num", "reso", "mos", "B", "icy1", "icy2", "cell1", \
                    "cell2", "cell3", "SGnum", "pdbid", "stolid"])
 
-        if invert_res:
-            self.prop.loc[:,"reso"] = 1/self.prop.reso
-
         if convert_res:
             self.prop.loc[:, "reso"] = self._convert_res2rad(self.prop.reso)
+
+        if invert_res:
+            self.prop.loc[:,"reso"] = 1/self.prop.reso
 
         self.labels = self.prop[["num", "reso"]]
         self.dev = dev  # pytorch device ID
@@ -117,13 +117,16 @@ class PngDset(Dataset):
         # Apply image transform here
         if self.transform:
             img_dat = self.transform(img_dat)
+        if self.use_float:
+            img_dat = img_dat.float()
+            img_lab = img_lab.float()
         return img_dat, img_lab
 
 
 class H5SimDataDset(Dataset):
 
     def __init__(self, h5name, dev=None, labels="labels", images="images",
-                 start=None, stop=None, label_sel=None, use_geom=False, transform = None):
+                 start=None, stop=None, label_sel=None, use_geom=False, transform=None):
         """
 
         :param h5name: hdf5 master file written by resonet/scripts/merge_h5s.py
@@ -144,7 +147,7 @@ class H5SimDataDset(Dataset):
             label_sel = [0]
         self.nlab = len(label_sel)
         self.label_sel = label_sel
-        self.labels_name = labels  #
+        self.labels_name = labels
         self.images_name = images
         self.h5name = h5name
         self.transform = transform
@@ -201,7 +204,9 @@ class H5SimDataDset(Dataset):
         assert self.dev is not None
         if self.images is None:
             self.open()
-        img_dat, img_lab = self.images[i + self.start][None], self.labels[i + self.start]
+        img_dat, img_lab = self.images[i + self.start], self.labels[i + self.start]
+        if len(img_dat.shape) == 2:
+            img_dat = img_dat[None]
         img_dat = torch.tensor(img_dat).to(self.dev)
         # if we are applying image augmentation
         if self.transform:

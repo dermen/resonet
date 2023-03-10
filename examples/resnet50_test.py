@@ -1,4 +1,13 @@
 
+from argparse import ArgumentParser
+parser = ArgumentParser()
+parser.add_argument("--pngdir", type=str, default="/home/rstofer/dials_project/png",
+                    help="path to resmos2 png folder")
+parser.add_argument("--propfile", type=str, help="path to resmos2 properties text file",
+                    default="/home/rstofer/dials_project/Downloads/num_reso_mos_B_icy1_icy2_cell_SGnum_pdbid_stolid.txt")
+parser.add_argument("--dontinvert", action="store_true", help="Do not invert the resolution (or radius)")
+parser.add_argument("--dontconvert", action="store_true",help="Do not convert resolution to radius (pixel) units" )
+args = parser.parse_args()
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
 
@@ -6,13 +15,13 @@ from torch.utils.data import DataLoader
 import torch
 
 from resonet.loaders import PngDset
-from resonet import params
+from resonet.params import res50
 import torch.nn as nn
 import torch.optim as optim
 
 
-pngdir = "/home/rstofer/dials_project/png"
-propfile = "/home/rstofer/dials_project/Downloads/num_reso_mos_B_icy1_icy2_cell_SGnum_pdbid_stolid.txt"
+pngdir = args.pngdir
+propfile = args.propfile
 
 # breakdown of images
 # first 8k images for training
@@ -20,9 +29,15 @@ propfile = "/home/rstofer/dials_project/Downloads/num_reso_mos_B_icy1_icy2_cell_
 # test on images 8k-9k (we will tune hyper parameters like learning rate to predict these images well)
 # secondary test set will be from 9k+ (these test how generalizable our hyper parameter tuning is)
 dev = "cuda:0"
-train_imgs = PngDset(pngdir=pngdir, propfile=propfile, start=0, stop=8000, dev=dev, convert_res=True)
-train_imgs_validate = PngDset(pngdir=pngdir, propfile=propfile, start=0, stop=1000, dev=dev, convert_res=True)
-test_imgs = PngDset(pngdir=pngdir, propfile=propfile, start=8000, stop=9000, dev=dev, convert_res=True)
+invert_res = not args.dontinvert
+convert_res = not args.dontconvert
+
+train_imgs = PngDset(pngdir=pngdir, propfile=propfile, start=0, stop=8000, dev=dev,
+                     invert_res=invert_res, convert_res=convert_res)
+train_imgs_validate = PngDset(pngdir=pngdir, propfile=propfile, start=0, stop=1000, dev=dev,
+                     invert_res=invert_res, convert_res=convert_res)
+test_imgs = PngDset(pngdir=pngdir, propfile=propfile, start=8000, stop=9000, dev=dev,
+                     invert_res=invert_res, convert_res=convert_res)
 
 train_tens = DataLoader(train_imgs, batch_size=16, shuffle=True)
 train_tens_validate = DataLoader(train_imgs_validate, batch_size=16, shuffle=False)
@@ -30,7 +45,7 @@ test_tens = DataLoader(test_imgs, batch_size=16, shuffle=False)
 
 
 # instantiate model
-nety = params.res50(nout=1, dev=dev)
+nety = res50(nout=1, dev=dev)
 criterion = nn.L1Loss()
 optimizer = optim.SGD(nety.parameters(), lr=1e-4, momentum=0.9)
 
