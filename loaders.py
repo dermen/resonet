@@ -204,7 +204,9 @@ class H5SimDataDset(Dataset):
         assert self.dev is not None
         if self.images is None:
             self.open()
-        img_dat, img_lab = self.images[i + self.start][None], self.labels[i + self.start]
+        img_dat, img_lab = self.images[i + self.start], self.labels[i + self.start]
+        if len(img_dat.shape) == 2:
+            img_dat = img_dat[None]
         img_dat = torch.tensor(img_dat).to(self.dev)
         # if we are applying image augmentation
         if self.transform:

@@ -29,10 +29,10 @@ with h5py.File(args.output, "w") as h:
     imgs_dset = h.create_dataset('images', dtype=np.float32, shape=(Nimg, 1, 512, 512))
     all_img_res = np.zeros((Nimg,1), np.float32)
     all_img_rad = np.zeros((Nimg,1), np.float32)
-    tpershot = []
+    ttot = 0
     for i_img in range(Nimg):
         if i_img > 0 and i_img % 10 == 0:
-            tper = np.mean(tpershot)
+            tper = ttot / (i_img+1)
             tremain = (Nimg-i_img+1) * tper
             print("Done with shot %d/%d. Est. time remaining=%.2f sec." % (i_img+1, Nimg, tremain))
         # get image data and resolution
@@ -41,7 +41,7 @@ with h5py.File(args.output, "w") as h:
         # save to image hdf5 file
         imgs_dset[i_img] = img_dat
         all_img_res[i_img] = img_res
-        tpershot.append( time.time()-t)
+        ttot += (time.time()-t)
 
         # convert to radius
         all_img_rad[i_img, 0] = png_dset._convert_res2rad(img_res[0])
