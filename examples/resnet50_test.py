@@ -47,7 +47,7 @@ test_tens = DataLoader(test_imgs, batch_size=16, shuffle=False)
 # instantiate model
 nety = res50(nout=1, dev=dev)
 criterion = nn.L1Loss()
-optimizer = optim.SGD(nety.parameters(), lr=1e-3, momentum=0.9)
+optimizer = optim.SGD(nety.parameters(), lr=1e-4, momentum=0.9)
 
 
 def validate(input_tens, model, epoch, criterion):
