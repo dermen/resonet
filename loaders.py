@@ -14,7 +14,7 @@ from PIL import Image
 class PngDset(Dataset):
 
     def __init__(self, pngdir=None, propfile=None, quad="A", start=None, stop=None,
-                 dev=None, invert_res=False, transform=None, convert_res=False, L2=False):
+                 dev=None, invert_res=False, transform=None, convert_res=False, use_float=True):
         """
 
         :param pngdir: path to folder resmos2 containing PNG files
@@ -26,11 +26,8 @@ class PngDset(Dataset):
         :param invert_res: whether to invert the resolution
         :param transform: whether to apply image transformations
         :param convert_res: whether to convert resolution labels to radii
-        :param L2: whether loss function is L2 norm
+        :param use_float: convert tensors to single precision. This is necessary for MSELoss
         """
-        if invert_res and convert_res:
-            raise ValueError("Only one of invert_res or convert_res should be True")
-        assert not (invert_res and convert_res)
         if pngdir is None:
             pngdir = "."
         if propfile is None:
@@ -38,7 +35,7 @@ class PngDset(Dataset):
         if dev is None:
             dev = "cuda:0"
         
-        self.L2 = L2
+        self.use_float = use_float
 
         self.transform = transform
 
@@ -54,11 +51,11 @@ class PngDset(Dataset):
             names=["num", "reso", "mos", "B", "icy1", "icy2", "cell1", \
                    "cell2", "cell3", "SGnum", "pdbid", "stolid"])
 
+        if convert_res:
+            self.prop.loc[:, "reso"] = self._convert_res2rad(self.prop.reso)
+
         if invert_res:
             self.prop.loc[:,"reso"] = 1/self.prop.reso
-
-        if convert_res:
-            self.prop.loc[:, "reso"] = 1/self._convert_res2rad(self.prop.reso)
 
         self.labels = self.prop[["num", "reso"]]
         self.dev = dev  # pytorch device ID
@@ -120,7 +117,7 @@ class PngDset(Dataset):
         # Apply image transform here
         if self.transform:
             img_dat = self.transform(img_dat)
-        if self.L2:
+        if self.use_float:
             img_dat = img_dat.float()
             img_lab = img_lab.float()
         return img_dat, img_lab
@@ -129,8 +126,7 @@ class PngDset(Dataset):
 class H5SimDataDset(Dataset):
 
     def __init__(self, h5name, dev=None, labels="labels", images="images",
-                 start=None, stop=None, label_sel=None, use_geom=False, transform = None,
-                 convert_res=False):
+                 start=None, stop=None, label_sel=None, use_geom=False, transform=None):
         """
 
         :param h5name: hdf5 master file written by resonet/scripts/merge_h5s.py
@@ -155,7 +151,6 @@ class H5SimDataDset(Dataset):
         self.images_name = images
         self.h5name = h5name
         self.transform = transform
-        self.convert_res = convert_res
         self.has_geom = False  # if geometry is present in master file, it can be used as model input
         # open to get length quickly!
         with h5py.File(h5name, "r") as h:
@@ -181,30 +176,12 @@ class H5SimDataDset(Dataset):
         self.labels = None  # hdf5 dataset
         self.geom = None  # hdf5 dataset
 
-    def _convert_res2rad(self, res):
-        """
-        :param res: resolutions (in Angstroms) from the resmos2 labels
-        :return: corresponding radii
-        """
-        detdist = 200 # mm
-        pixsize = 0.075 # mm
-        pixsize = pixsize*4  # downsample term
-        wavelen = 0.977794  # angstrom
-        # from Braggs law, we know:
-        theta = np.arcsin(wavelen*.5/res)
-
-        # from trig we know
-        rad = np.tan(2*theta)*detdist/pixsize
-        return rad
-
     def open(self):
         self.h5 = h5py.File(self.h5name, "r")
         self.images = self.h5[self.images_name]
         if self.images.dtype!=np.float32:
             raise ValueError("Images should be type float32!")
         self.labels = self.h5[self.labels_name][:, self.label_sel]
-        if self.convert_res == True:
-            self.labels = self._convert_res2rad(self.labels)
         if self.labels.dtype==np.float64:
             self.labels = self.labels.astype(np.float32)
         if self.use_geom:
