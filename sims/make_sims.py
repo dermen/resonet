@@ -81,19 +81,23 @@ def load_stol(name):
     return flex.vec2_double(list(zip(Fbg, stol)))
 
 
-def get_background(D,B):
-    """
+def get_background(D,B, no_air=False, no_water=False, water_path_mm=None, air_path_mm=None):
 
-    :param D: dxtbx detector
-    :param B: dxtbx beam
-    :return:
-    """
+    air = 0
+    if not no_air:
+        if air_path_mm is None:
+            air_path_mm = 5
+        air = nb_utils.sim_background(D, B, [B.get_wavelength()], [1], paths_and_const.FLUX, molecular_weight=14,
+                                      sample_thick_mm=air_path_mm,
+                                   Fbg_vs_stol=load_stol(paths_and_const.AIR_STOL), density_gcm3=1.2e-3)  #
 
-    air = nb_utils.sim_background(D, B, [B.get_wavelength()], [1], paths_and_const.FLUX, molecular_weight=14, sample_thick_mm=5,
-                               Fbg_vs_stol=load_stol(paths_and_const.AIR_STOL), density_gcm3=1.2e-3)  #
-
-    water = nb_utils.sim_background(D, B, [B.get_wavelength()], [1], paths_and_const.FLUX, molecular_weight=18, sample_thick_mm=paths_and_const.XTALSIZE_MM,
-                               Fbg_vs_stol=load_stol(paths_and_const.WATER_STOL), density_gcm3=1)  #
+    water = 0
+    if not no_water:
+        if water_path_mm is None:
+            water_path_mm = paths_and_const.XTALSIZE_MM
+        water = nb_utils.sim_background(D, B, [B.get_wavelength()], [1], paths_and_const.FLUX, molecular_weight=18,
+                                   sample_thick_mm=water_path_mm,
+                                   Fbg_vs_stol=load_stol(paths_and_const.WATER_STOL), density_gcm3=1)  #
 
     background = air + water
 

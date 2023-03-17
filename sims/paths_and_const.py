@@ -37,6 +37,6 @@ FIX_RES = None # 0.5/.29989  # optionally fix the resolution for all simulations
 RANDOM_PDBS = [d for d in glob.glob(os.path.join(dirname, "pdbs/*")) if len(os.path.basename(d))==4 and os.path.isdir(d)]
 
 # mosaicity bounds (degrees)
-MOS_MIN = 0.001
-MOS_MAX = 0.01
+MOS_MIN = 0.2
+MOS_MAX = 1
 
