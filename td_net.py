@@ -27,6 +27,6 @@ net.do_training(args.input, args.labelName, args.imgsName, args.outdir,
             lr=args.lr, bs=args.bs, ep=args.ep,
             arch=args.arch, loss=args.loss,
             logfile=args.logfile, loglevel=args.loglevel,
-            display=True, save_freq=args.saveFreq,
+            display=not args.noDisplay, save_freq=args.saveFreq,
             COMM=COMM, ngpu_per_node=ngpu_per_node,
             use_geom=args.useGeom,weights = args.weights,error = args.error)

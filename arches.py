@@ -34,6 +34,15 @@ class RESNetBase(nn.Module):
             x = self.fc2(x)
         if self.binary:
             x = self.Sigmoid(x)
+        if y is not None:
+            # NOTE this is for 1/reso
+            detdist, pixsize, wavelen, xdim, ydim = y.T
+            is_pilatus = xdim==2463
+            xdim[is_pilatus] = 2
+            xdim[~is_pilatus] = 4  # downsampling term
+            theta = torch.arctan(((xdim * pixsize / detdist) * x.T).T) * 0.5
+            stheta = torch.sin(theta)
+            x = ((2/wavelen)*stheta.T).T
         return x
 
     @property
