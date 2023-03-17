@@ -27,6 +27,10 @@ def args(use_joblib=False):
     parser.add_argument("--cpuMode", action="store_true",
                         help="run computation on CPU (should specify small --nmos to speed up computation)")
     parser.add_argument("--verbose", action="store_true", help="if true, show extra output (for mpi rank0 only)")
+    parser.add_argument("--addHot", action="store_true", help="randomly add hot pixels")
+    parser.add_argument("--addBad", action="store_true", help="randomly 0-out bad pixels")
+    parser.add_argument("--varyBgScale", action="store_true", help="if true, vary background scale by factor in range 0.05-1.5")
+    parser.add_argument("--beamStop", action="store_true", help="if true, add a random beamstop mask to each simulated shot")
     if use_joblib:
         parser.add_argument("--njobs", default=None, type=int, help="number of jobs")
     args = parser.parse_args()
@@ -53,6 +57,7 @@ def run(args, seeds, jid, njobs):
     import dxtbx
     from simtbx.diffBragg import utils
     from scipy.spatial.transform import Rotation
+    from scipy.ndimage import binary_dilation
 
     from resonet.sims.simulator import Simulator, reso2radius
     from resonet.utils import eval_model
@@ -76,8 +81,13 @@ def run(args, seeds, jid, njobs):
         # get the detector dimensions (used to determine detector model below)
         xdim,ydim = DET[0].get_image_size()
         # which pixel do not contain data
-        mask = loader.get_raw_data().as_numpy_array() > 0
+        mask = loader.get_raw_data().as_numpy_array() >= 0
+        mask = ~binary_dilation(~mask, iterations=2)
 
+    # make an image whose pixel value corresonds to the radius from the center.
+    # and this will be used to create on-the-fly beamstop masks of varying radius
+    Y,X = np.indices((ydim, xdim))
+    pixR = np.sqrt((X-xdim*.5)**2 + (Y-ydim*.5)**2)
 
     # instantiate the simulator class
     HS = Simulator(DET, BEAM, cuda=not args.cpuMode,
@@ -116,20 +126,57 @@ def run(args, seeds, jid, njobs):
                                       multi_lattice_chance=args.multiChance,
                                       mos_min_max=args.mosMinMax,
                                       max_lat=args.maxLat,
-                                      dev=dev, mos_dom_override=args.nmos)
+                                      dev=dev, mos_dom_override=args.nmos,
+                                      vary_background_scale=args.varyBgScale)
             # at what pixel radius does this resolution corresond to
             radius = reso2radius(params["reso"], DET, BEAM)
 
-            all_param.append(
-                [params["reso"], radius, params["multi_lattice"], params["ang_sigma"], params["num_lat"]])
+            # add hot pixels
+            npix = img.size
+            if args.addHot:
+                nhot = np.random.randint(0, 6)
+                hot_inds = np.random.permutation(npix)[:nhot]
+
+                img_1d = img.ravel()
+                img_1d[hot_inds] = 2**16
+                img = img_1d.reshape(img.shape)
+                img *= mask
+
+            # add bad pixels
+            if args.addBad:
+                nbad = np.random.randint(40,100)
+                bad_inds = np.random.permutation(npix)[:nbad]
+
+                img_1d = img.ravel()
+                img_1d[bad_inds] = 0
+                img = img_1d.reshape(img.shape)
+                img *= mask
+
+            # add optional beamstop mask:
+            shot_mask = mask.copy()
+            beamstop_rad=-1
+            if args.beamStop:
+                beamstop_rad = np.random.choice(range(0,201,5))
+                is_in_beamstop = pixR < beamstop_rad
+                if args.verbose:
+                    print("beamstop rad=%.1f" % beamstop_rad)
+                shot_mask = np.logical_and(shot_mask, ~is_in_beamstop)
 
             # process the raw images according to detector model
             if xdim==2463:  # Pilatus 6M
-                quad = eval_model.raw_img_to_tens_pil(img, mask)
+                quad = eval_model.raw_img_to_tens_pil(img, shot_mask)
+                factor = 2
             elif xdim==4096:  # Mar
-                quad = eval_model.raw_img_to_tens_mar(img, mask)
+                quad = eval_model.raw_img_to_tens_mar(img, shot_mask)
+                factor = 4
             else:  # Eiger
-                quad = eval_model.raw_img_to_tens(img, mask)
+                quad = eval_model.raw_img_to_tens(img, shot_mask)
+                factor = 4
+
+            all_param.append(
+                [params["reso"], radius/factor, params["multi_lattice"], params["ang_sigma"], params["num_lat"],
+                 params["bg_scale"], beamstop_rad])
+
             if args.saveRaw:
                 raw_dset[i_shot] = img
             dset[i_shot] = quad

@@ -29,7 +29,7 @@ def load_model(state_name, arch="res50"):
             k = k[7:]
         state[k] = v
         
-    model.load_state_dict(state)
+    model.load_state_dict(state, strict=False)
     model = model.to("cpu")
     model = model.eval()
     return model

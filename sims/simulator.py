@@ -26,7 +26,7 @@ class Simulator:
         self.verbose = verbose
 
     def simulate(self, rot_mat=None, multi_lattice_chance=0, max_lat=2, mos_min_max=None,
-                 pdb_name=None, plastic_stol=None, dev=0, mos_dom_override=None):
+                 pdb_name=None, plastic_stol=None, dev=0, mos_dom_override=None, vary_background_scale=False):
         """
 
         :param rot_mat: specific orientation matrix for crystal
@@ -46,7 +46,7 @@ class Simulator:
             assert os.path.isdir(pdb_name)
         C = make_crystal.load_crystal(pdb_name, rot_mat)
         mos_min = mos_max = None  # will default to values in paths_and_const.py
-        if mos_min_max is None:
+        if mos_min_max is not None:
             mos_min, mos_max = mos_min_max
 
         mos_spread, mos_dom = make_sims.choose_mos(mos_min, mos_max)
@@ -117,7 +117,14 @@ class Simulator:
 
         reso, Bfac_img = make_sims.get_Bfac_img(self.STOL)
 
-        img = spots*Bfac_img*paths_and_const.VOL + self.air_and_water + plastic
+        bg = self.air_and_water + plastic
+        bg_scale = 1
+        if vary_background_scale:
+            bg_scale = np.random.choice([0.0125, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 1.25])
+            if self.verbose:
+                print("Scaling background by %.3f" % bg_scale)
+
+        img = spots*Bfac_img*paths_and_const.VOL + bg*bg_scale
 
         make_sims.set_noise(S.D)
 
@@ -128,6 +135,7 @@ class Simulator:
         param_dict = {"reso": reso,
                       "multi_lattice": use_multi,
                       "ang_sigma": ang_sigma,
+                      "bg_scale": bg_scale,
                       "num_lat": num_additional_lat+1}
 
         S.D.free_all()
