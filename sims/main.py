@@ -27,6 +27,8 @@ def args(use_joblib=False):
     parser.add_argument("--cpuMode", action="store_true",
                         help="run computation on CPU (should specify small --nmos to speed up computation)")
     parser.add_argument("--verbose", action="store_true", help="if true, show extra output (for mpi rank0 only)")
+    parser.add_argument("--addHot", action="store_true", help="randomly add hot pixels")
+    parser.add_argument("--addBad", action="store_true", help="randomly 0-out bad pixels")
     if use_joblib:
         parser.add_argument("--njobs", default=None, type=int, help="number of jobs")
     args = parser.parse_args()
@@ -53,6 +55,7 @@ def run(args, seeds, jid, njobs):
     import dxtbx
     from simtbx.diffBragg import utils
     from scipy.spatial.transform import Rotation
+    from scipy.ndimage import binary_dilation
 
     from resonet.sims.simulator import Simulator, reso2radius
     from resonet.utils import eval_model
@@ -76,8 +79,8 @@ def run(args, seeds, jid, njobs):
         # get the detector dimensions (used to determine detector model below)
         xdim,ydim = DET[0].get_image_size()
         # which pixel do not contain data
-        mask = loader.get_raw_data().as_numpy_array() > 0
-
+        mask = loader.get_raw_data().as_numpy_array() >= 0
+        mask = ~binary_dilation(~mask, iterations=2)
 
     # instantiate the simulator class
     HS = Simulator(DET, BEAM, cuda=not args.cpuMode,
@@ -120,16 +123,41 @@ def run(args, seeds, jid, njobs):
             # at what pixel radius does this resolution corresond to
             radius = reso2radius(params["reso"], DET, BEAM)
 
-            all_param.append(
-                [params["reso"], radius, params["multi_lattice"], params["ang_sigma"], params["num_lat"]])
+            # add hot pixels
+            npix = img.size
+            if args.addHot:
+                nhot = np.random.randint(0, 6)
+                hot_inds = np.random.permutation(npix)[:nhot]
+
+                img_1d = img.ravel()
+                img_1d[hot_inds] = 2**16
+                img = img_1d.reshape(img.shape)
+                img *= mask
+
+            # add bad pixels
+            if args.addBad:
+                nbad = np.random.randint(40,100)
+                bad_inds = np.random.permutation(npix)[:nbad]
+
+                img_1d = img.ravel()
+                img_1d[bad_inds] = 0
+                img = img_1d.reshape(img.shape)
+                img *= mask
 
             # process the raw images according to detector model
             if xdim==2463:  # Pilatus 6M
                 quad = eval_model.raw_img_to_tens_pil(img, mask)
+                factor = 2
             elif xdim==4096:  # Mar
                 quad = eval_model.raw_img_to_tens_mar(img, mask)
+                factor = 4
             else:  # Eiger
                 quad = eval_model.raw_img_to_tens(img, mask)
+                factor = 4
+
+            all_param.append(
+                [params["reso"], radius/factor, params["multi_lattice"], params["ang_sigma"], params["num_lat"]])
+
             if args.saveRaw:
                 raw_dset[i_shot] = img
             dset[i_shot] = quad
