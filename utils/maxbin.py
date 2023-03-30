@@ -83,6 +83,19 @@ def get_slice_pil(xy=None):
     return ysl, xsl
 
 
+def maximg_downsample(img, factor=2):
+    ydim, xdim = img.shape
+    while xdim % factor:
+        xdim += 1
+    while ydim % factor:
+        ydim += 1
+    ypad = ydim - img.shape[0]
+    xpad = xdim - img.shape[1]
+    padimg = np.pad(img, ((0, ypad), (0, xpad)), mode="edge")
+    maximg = bin_ndarray(padimg, (int(ydim / factor), int(xdim / factor)), 'max')
+    return maximg
+
+
 if __name__=="__main__":
     # reference image from cbf2int, created using the following 2 commands:
     # ~blstaff/generation_scripts/cbf2int  -maxpool 4 --sqrt --bits 8  -pgm  /data/lyubimov/software_tests/eiger2_data/10242021/B2/B2_1_00573.cbf -output test2.pgm

@@ -25,12 +25,20 @@ def get_parser():
     parser.add_argument("--trainRange", type=int, nargs=2, default=None)
     parser.add_argument("--testRange", type=int, nargs=2, default=None)
     parser.add_argument("--momentum", type=float, default=0.9, help="momentum for SGD optimizer")
-    parser.add_argument("--nesterov", action="store_true", help="use nesterov momentum (SGD)")
+    parser.add_argument("--nesterov", action="store_true",
+                        help="use nesterov momentum (SGD)")
     parser.add_argument("--damp", type=float, default=0, help="dampening (SGD)")
-    parser.add_argument("--useGeom", action="store_true", help="if geom is included as a dataset in the input file, use it for training")
-    parser.add_argument("--error",type=float, default=0.07, help="the error threshold the model consider accurate")
-    parser.add_argument("--weights",type = str, choices = ["IMAGENET1K_V2","IMAGENET1K_V1"], help="whether use pretrained weights")
+    parser.add_argument("--useGeom", action="store_true",
+                        help="if geom is included as a dataset in the input file, use it for training")
+    parser.add_argument("--error", type=float, default=0.07, help="the error threshold the model consider accurate")
+    parser.add_argument("--weights", type=str, choices=["IMAGENET1K_V2","IMAGENET1K_V1"],
+                        help="whether use pretrained weights", default=None)
     parser.add_argument("--transform", action="store_true", help="whether use data augmentation")
+    parser.add_argument("--labelSel", nargs="+", default=None,
+                        help="optional list of names or numbers specifying labels. "
+                             "If names are provided, this assumes the labels dataset in the hdf5 "
+                             "input file has a `name` attribute set")
+    parser.add_argument("--half", action="store_true", help="attempt to use half precision" )
     return parser
 
 
@@ -114,7 +122,7 @@ def validate(input_tens, model, epoch, criterion, COMM=None, error = 0.3):
         if using_bce:
             pred = torch.round(torch.sigmoid(pred))
         else:
-            errors = (pred-labels).abs()/labels
+            errors = (pred-labels).abs()
             is_accurate = errors < error
             nacc += is_accurate.all(dim=1).sum().item()
             total += len(labels)
@@ -153,10 +161,10 @@ def validate(input_tens, model, epoch, criterion, COMM=None, error = 0.3):
         return acc, ave_loss, all_lab, all_pred
 
 
-def plot_acc(ax, idx, acc, epoch):
+def plot_acc(ax, idx, acc, epoch, starting_ep):
     lx, ly = ax.lines[idx].get_data()
     ax.lines[idx].set_data(np.append(lx, epoch),np.append(ly, acc) )
-    if epoch==0:
+    if epoch == starting_ep:
         ax.set_ylim(acc*0.97,acc*1.03)
     else:
         ax.set_ylim(min(min(ly), acc)*0.97, max(max(ly), acc)*1.03)
@@ -216,16 +224,19 @@ def update_plots(ax0,ax1, epoch):
 
 
 def do_training(h5input, h5label, h5imgs, outdir,
-         lr=1e-3, bs=16, ep=100, momentum=0.9,
+         lr=1e-3, bs=16, max_ep=100, momentum=0.9,
          weight_decay=0, dropout=False,
          nesterov=False, damp=0,
          arch="res50", loss="L1", dev="cuda:0",
          logfile=None, train_start_stop=None, test_start_stop=None,
          loglevel="info",
          display=True, save_freq=10,
-         num_workers=1,
-         title=None, COMM=None, ngpu_per_node=1, use_geom=False, error = 0.3, weights = None, use_transform = False):
+         label_sel=None, half_precision=False,
+         title=None, COMM=None, ngpu_per_node=1, use_geom=False,
+         error=0.3, weights=None, use_transform=False,
+         cp=None):
 
+    training_args = list(locals().items())
     # model and criterion choices
     assert loglevel in ["info", "debug", "critical"]
 
@@ -265,24 +276,42 @@ def do_training(h5input, h5label, h5imgs, outdir,
     else:
         transform = None
 
-    train_imgs = H5SimDataDset(h5input,  dev=dev, labels=h5label, images=h5imgs,
-                           start=train_start, stop=train_stop, use_geom=use_geom, transform = transform)
-    train_imgs_validate = H5SimDataDset(h5input,dev=dev,  labels=h5label, images=h5imgs,
-                                    start=train_start, stop=train_start+ntest, use_geom=use_geom)
-    test_imgs = H5SimDataDset(h5input, dev=dev, labels=h5label, images=h5imgs,
-                          start=test_start, stop=test_stop, use_geom=use_geom)
+    #nout = 1
+    #if label_sel is not None:
+    #    nout = len(label_sel)
+
+    common_args = {"dev":dev,"labels": h5label, "images": h5imgs,
+                   "use_geom": use_geom, "label_sel": label_sel,
+                   "half_precision": half_precision}
+    train_imgs = H5SimDataDset(h5input,
+                           start=train_start, stop=train_stop, transform=transform, **common_args)
+    train_imgs_validate = H5SimDataDset(h5input,
+                                    start=train_start, stop=train_start+ntest, **common_args)
+    test_imgs = H5SimDataDset(h5input,
+                          start=test_start, stop=test_stop, **common_args)
 
     # instantiate model
     # TODO make geometry length a variable (for now its always [detdist, pixsize, wavelen, fastdim, slowdim]
-    nety = ARCHES[arch](nout=train_imgs.nlab, dev=train_imgs.dev, dropout=dropout, ngeom=5, weights = weights)
+    if cp is None:
+        nety = ARCHES[arch](nout=train_imgs.nlab, dev=train_imgs.dev, dropout=dropout, ngeom=5, weights=weights)
+    else:
+        nety = ARCHES[arch](nout=train_imgs.nlab, dev="cpu", dropout=dropout, ngeom=5, weights=weights)
+        nety.load_state_dict(cp["model_state"])
+        nety = nety.to(train_imgs.dev)
+
     if COMM is not None:
         nety = torch.nn.SyncBatchNorm.convert_sync_batchnorm(nety)
         nety = nn.parallel.DistributedDataParallel(nety, device_ids=[gpuid], 
             find_unused_parameters= arch in ["le", "res50"])
-
+    if half_precision:
+        print("Moving model to half precision")
+        nety = nety.half()
 
     criterion = LOSSES[loss]()
     optimizer = optim.SGD(nety.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay, nesterov=nesterov, dampening=damp )
+    if cp is not None:
+        optimizer.load_state_dict(cp["optimizer_state"])
+
     #optimizer = optim.Adam(nety.parameters(), lr=lr, weight_decay=weight_decay)
     #sched = torch.optim.lr_scheduler.ExponentialLR(optimizer,gamma=0.9)
 
@@ -297,8 +326,8 @@ def do_training(h5input, h5label, h5imgs, outdir,
         logger.critical(cmdline)
     else:
         logger = get_logger(do_nothing=True)
+    logger.info("Training for %d outputs" % train_imgs.nlab)
 
-    
     if COMM is None or COMM.rank==0:
         # optional plots
         if title is None:
@@ -328,8 +357,12 @@ def do_training(h5input, h5label, h5imgs, outdir,
     if COMM is not None:
         nbatch = np.ceil((train_stop - train_start) / bs / COMM.size)
 
-    for epoch in range(ep):
+    starting_ep = 0
+    if cp is not None:
+        starting_ep = cp["epoch"]
 
+    assert max_ep > starting_ep
+    for epoch in range(starting_ep, max_ep, 1):
 
         # <><><><><><><><
         #    Trainings 
@@ -366,14 +399,14 @@ def do_training(h5input, h5label, h5imgs, outdir,
             #losses.append(l)
             #all_losses.append(l)
             #if i % 10 == 0 and len(losses)> 1:
-            #
-            #    ave_loss = np.mean(losses)
-
-            #    logger.info("Ep:%d, batch:%d, loss:  %.5f (latest acc=%.2f%%, max acc=%.2f%%)" \
-            #        % (epoch, i, ave_loss, acc, mx_acc))
-            #    losses = []
-        
-        #ave_train_loss = np.mean(all_losses)
+#
+#                ave_loss = np.mean(losses)
+#
+#                logger.info("Ep:%d, batch:%d, loss:  %.5f (latest acc=%.2f%%, max acc=%.2f%%)" \
+#                    % (epoch, i, ave_loss, acc, mx_acc))
+#                losses = []
+#
+#        ave_train_loss = np.mean(all_losses)
         t = time.time()-t
         if COMM is None or COMM.rank==0:
             print("Traing time: %.4f sec" % t, flush=True)
@@ -384,18 +417,19 @@ def do_training(h5input, h5label, h5imgs, outdir,
         nety.eval()
         with torch.no_grad():
             logger.info("Computing test accuracy:")
-            acc,test_loss, test_lab, test_pred = validate(test_tens, nety, epoch, criterion, COMM, error = error)
+            acc, test_loss, test_lab, test_pred = validate(test_tens, nety, epoch, criterion, COMM, error=error)
             logger.info("Computing train accuracy:")
-            train_acc,train_loss,_,_ = validate(train_tens_validate, nety, epoch, criterion, COMM, error = error)
+            train_acc,train_loss,_,_ = validate(train_tens_validate, nety, epoch, criterion, COMM, error=error)
+            logger.info("Train loss=%.7f, Test loss=%.7f" % (train_loss, test_loss))
 
             mx_acc = max(acc, mx_acc)
             
             if COMM is None or COMM.rank==0:    
-                plot_acc(ax0, 0, test_loss, epoch)
-                plot_acc(ax0, 1, train_loss, epoch)
-                plot_acc(ax0, 2, train_loss, epoch)
-                plot_acc(ax1, 0, acc, epoch)
-                plot_acc(ax1, 1, train_acc, epoch)
+                plot_acc(ax0, 0, test_loss, epoch, starting_ep)
+                plot_acc(ax0, 1, train_loss, epoch, starting_ep)
+                plot_acc(ax0, 2, train_loss, epoch, starting_ep)
+                plot_acc(ax1, 0, acc, epoch, starting_ep)
+                plot_acc(ax1, 1, train_acc, epoch, starting_ep)
 
                 update_plots(ax0,ax1, epoch)
 
@@ -413,14 +447,28 @@ def do_training(h5input, h5label, h5imgs, outdir,
             outname = os.path.join(outdir, "nety_ep%d.nn"%(epoch+1))
             torch.save(nety.state_dict(), outname)
             plt.savefig(outname.replace(".nn", "_train.png"))
-            save_results_fig(outname,test_lab, test_pred) 
-            
+            save_results_fig(outname, test_lab, test_pred)
+            restart_file = outname.replace(".nn", ".chkpt")
+            save_checkpoint(restart_file,
+                            epoch, nety, optimizer, train_loss, training_args)
+
     # final save! 
     if COMM is None or COMM.rank==0:
         outname = os.path.join(outdir, "nety_epLast.nn")
         torch.save(nety.state_dict(), outname)
         plt.savefig(outname.replace(".nn", "_train.png"))
-        save_results_fig(outname,test_lab, test_pred) 
+        save_results_fig(outname, test_lab, test_pred)
+
+
+def save_checkpoint(filename, epoch, model, optimizer, loss, args):
+    for i_arg, (name, val) in enumerate(args):
+        if isinstance(val, str):
+            if os.path.isdir(val) or os.path.isfile(val):
+                args[i_arg] = name, os.path.abspath(val)
+
+    torch.save({"epoch": epoch, "model_state": model.state_dict(),
+                "optimizer_state": optimizer.state_dict(),
+                'loss': loss, "args": args}, filename)
 
 
 if __name__ == "__main__":
@@ -441,9 +489,11 @@ if __name__ == "__main__":
                 weight_decay=args.weightDecay, 
                 nesterov=args.nesterov, damp=args.damp,
                 dropout=args.dropout,
-                lr=args.lr, bs=args.bs, ep=args.ep,
+                lr=args.lr, bs=args.bs, max_ep=args.ep,
                 arch=args.arch, loss=args.loss,
                 logfile=args.logfile, loglevel=args.loglevel,
+                label_sel=args.labelSel,
+                half_precision=args.half,
                 display=not args.noDisplay, save_freq=args.saveFreq,
                 use_geom=args.useGeom, error = args.error, weights = args.weights, use_transform = args.transform)
 

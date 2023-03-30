@@ -9,19 +9,34 @@ def expand(fname):
     :return:
     """
     with h5py.File(fname, "r+") as h:
-        L = h['labels'][()]
+        L = h["labels"][()]
+        label_names = h["labels"].attrs["names"]
+        print("Found labels for %s." % ", ".join(label_names))
 
-        res = L[:, 0:1]
-        rad = L[:, 1:2]
-        multi = L[:, 2:3]
-        for name in ["res", "rad", "multi", "one_over_res"]:
-            if name in list(h.keys()):
-                del h[name]
-        h.create_dataset("res", data=res, dtype=np.float32)
-        h.create_dataset("rad", data=rad, dtype=np.float32)
-        h.create_dataset("multi", data=multi, dtype=np.float32)
-        h.create_dataset("one_over_res", data=1 / res, dtype=np.float32)
-    print(fname)
+        for i,name in enumerate(label_names):
+            delete_dset(h, name)
+            data = L[:, i:i+1]
+            dt = np.float32
+            h.create_dataset(name, data=data, dtype=dt)
+            if name == "reso":
+                delete_dset(h, "one_over_reso")
+                h.create_dataset("one_over_reso", data=1/data, dtype=dt)
+            if name == "radius":
+                delete_dset(h, "one_over_radius")
+                h.create_dataset("one_over_radius", data=1/data, dtype=dt)
+
+    print("Done expanding labels for", fname)
+
+
+def delete_dset(h5_group, dset_name):
+    """
+
+    :param h5_group: h5 file handle or group
+    :param dset_name: dataset name to delete
+    :return:
+    """
+    if dset_name in list(h5_group.keys()):
+        del h5_group[dset_name]
 
 
 if __name__=="__main__":

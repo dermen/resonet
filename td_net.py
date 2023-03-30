@@ -24,9 +24,10 @@ net.do_training(args.input, args.labelName, args.imgsName, args.outdir,
             weight_decay=args.weightDecay, 
             nesterov=args.nesterov, damp=args.damp,
             dropout=args.dropout,
-            lr=args.lr, bs=args.bs, ep=args.ep,
+            lr=args.lr, bs=args.bs, max_ep=args.ep,
             arch=args.arch, loss=args.loss,
             logfile=args.logfile, loglevel=args.loglevel,
+            label_sel=args.labelSel, half_precision=args.half,
             display=not args.noDisplay, save_freq=args.saveFreq,
             COMM=COMM, ngpu_per_node=ngpu_per_node,
-            use_geom=args.useGeom,weights = args.weights,error = args.error)
+            use_geom=args.useGeom, weights=args.weights, error=args.error)

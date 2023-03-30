@@ -1,5 +1,8 @@
 
 import os
+from copy import deepcopy
+from simtbx.diffBragg.utils import ENERGY_CONV
+from dxtbx.model import Detector, Panel
 import numpy as np
 from scipy.spatial.transform import Rotation
 
@@ -26,7 +29,8 @@ class Simulator:
         self.verbose = verbose
 
     def simulate(self, rot_mat=None, multi_lattice_chance=0, max_lat=2, mos_min_max=None,
-                 pdb_name=None, plastic_stol=None, dev=0, mos_dom_override=None, vary_background_scale=False):
+                 pdb_name=None, plastic_stol=None, dev=0, mos_dom_override=None, vary_background_scale=False,
+                 randomize_dist=False, randomize_wavelen=False, randomize_center=None):
         """
 
         :param rot_mat: specific orientation matrix for crystal
@@ -61,8 +65,43 @@ class Simulator:
 
         S = sim_data.SimData()
         S.crystal = C
-        S.beam = self.nb_beam
-        S.detector = self.DET
+
+        if randomize_dist or randomize_center or randomize_wavelen:
+            shot_beam = deepcopy(self.BEAM)
+            if randomize_wavelen:
+                energy_ev = np.random.uniform(10000,13000)
+                shot_wavelen = ENERGY_CONV / energy_ev
+                shot_beam.set_wavelength(shot_wavelen)
+
+            shot_det = deepcopy(self.DET)
+            if randomize_dist:
+                curr_dist = self.DET[0].get_distance()
+                new_dist = np.random.uniform(200, 300)
+                dist_shift = new_dist - curr_dist
+                shot_det = shift_distance(shot_det, dist_shift)
+
+            if randomize_center:
+                cent_window_mm = 10  # millimeters
+                cent_window_pix = int(cent_window_mm/shot_det[0].get_pixel_size()[0])
+                new_cent_x, new_cent_y = np.random.uniform(-cent_window_pix, cent_window_pix, 2)
+                shot_det = shift_center(shot_det, new_cent_x, new_cent_y)
+
+            air_and_water = make_sims.get_background(shot_det, shot_beam)
+            # stol of every pixel:
+            STOL = make_sims.get_theta_map(shot_det, shot_beam)
+
+            nb_beam = make_crystal.load_beam(shot_beam,
+                                          divergence=paths_and_const.DIVERGENCE_MRAD / 1e3 * 180 / np.pi)
+
+        else:
+            air_and_water = self.air_and_water
+            STOL = self.STOL
+            nb_beam = self.nb_beam
+            shot_beam = self.BEAM
+            shot_det = self.DET
+
+        S.beam = nb_beam
+        S.detector = shot_det
         S.instantiate_nanoBragg(oversample=1)
 
         if self.verbose:
@@ -113,13 +152,17 @@ class Simulator:
             plastic_stol = np.random.choice(paths_and_const.RANDOM_STOLS)
         else:
             assert os.path.exists(plastic_stol)
-        plastic = make_sims.random_bg(self.DET, self.BEAM, plastic_stol)
+        plastic = make_sims.random_bg(shot_det, shot_beam, plastic_stol)
 
-        reso, Bfac_img = make_sims.get_Bfac_img(self.STOL)
+        reso, Bfac_img = make_sims.get_Bfac_img(STOL)
 
-        bg = self.air_and_water + plastic
+        bg = air_and_water + plastic
         bg_scale = 1
         if vary_background_scale:
+            #low_bg_scale = np.random.choice([0.0125, 0.025, 0.05, 0.1, 0.25])
+            #norm_bg_scale = np.random.choice([1, 1.25])
+            #is_low_bg = np.random.random() < 2/7.  # 2 out of 7 datasets are collected in low background mode
+            #bg_scale = low_bg_scale if is_low_bg else norm_bg_scale
             bg_scale = np.random.choice([0.0125, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 1.25])
             if self.verbose:
                 print("Scaling background by %.3f" % bg_scale)
@@ -136,7 +179,10 @@ class Simulator:
                       "multi_lattice": use_multi,
                       "ang_sigma": ang_sigma,
                       "bg_scale": bg_scale,
-                      "num_lat": num_additional_lat+1}
+                      "num_lat": num_additional_lat+1,
+                      "wavelength": nb_beam.spectrum[0][0],
+                      "detector_distance": S.detector[0].get_distance(),
+                      "beam_center": S.detector[0].get_beam_centre_px(nb_beam.unit_s0)}
 
         S.D.free_all()
 
@@ -158,3 +204,41 @@ def reso2radius(reso, DET, BEAM):
     theta = np.arcsin(wavelen/2/reso)
     rad = np.tan(2*theta) * detdist/pixsize
     return rad
+
+
+def shift_center(det, delta_x, delta_y):
+    """
+    :param det: dxtbx detector model (single panel)
+    :param delta_x: beam center shift in pixels (fast dim)
+    :param delta_y: beam center shift in pixels (slow dim)
+    :return: dxtbx detector model with shifted center
+    """
+    dd = det[0].to_dict()
+    F = np.array(dd["fast_axis"])
+    S = np.array(dd["slow_axis"])
+    O = np.array(dd['origin'])
+    pixsize = det[0].get_pixel_size()[0]
+    O2 = O + F * pixsize * delta_x + S * pixsize * delta_y
+    dd["origin"] = tuple(O2)
+    new_det = Detector()
+    new_pan = Panel.from_dict(dd)
+    new_det.add_panel(new_pan)
+    return new_det
+
+def shift_distance(det, delta_z):
+    """
+    :param det: dxtbx detector model (single panel)
+    :param delta_z: distance shift in millimeters
+    :return: dxtbx detector model with shifted center
+    """
+    dd = det[0].to_dict()
+    F = np.array(dd["fast_axis"])
+    S = np.array(dd["slow_axis"])
+    O = np.array(dd['origin'])
+    Orth = np.cross(F,S)
+    O2 = O + Orth*delta_z
+    dd["origin"] = tuple(O2)
+    new_det = Detector()
+    new_pan = Panel.from_dict(dd)
+    new_det.add_panel(new_pan)
+    return new_det
