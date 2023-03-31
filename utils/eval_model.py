@@ -18,6 +18,15 @@ MODEL_A = "/data/blstaff/xtal/mwilson_data/diff_AI/nety_ep40.nn"
 MODEL_B = "/global/cscratch1/sd/dermen/3p15_noMulti/trial.2/nety_ep20.nn"
 
 
+def strip_names_in_state(orig_state):
+    new_state = OrderedDict()
+    for k, v in orig_state.items():
+        if k.startswith("module."):
+            k = k[7:]
+        new_state[k] = v
+    return new_state
+
+
 def load_model(state_name, arch="res50"):
     assert HAS_TORCH
     assert arch in ARCHES

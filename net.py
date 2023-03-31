@@ -145,7 +145,7 @@ def validate(input_tens, model, epoch, criterion, COMM=None, error = 0.3):
         pears = [pearsonr(L,P)[0] for L,P in zip(all_lab, all_pred)]
         spears = [spearmanr(L,P)[0] for L,P in zip(all_lab, all_pred)]
         logger.info("\taccuracy at Ep%d: %.2f%%" \
-            % (epoch, acc))
+            % (epoch+1, acc))
         for pear, spear in zip(pears, spears):
             logger.info("\tpredicted-VS-truth: PearsonR=%.3f%%, SpearmanR=%.3f%%" \
                 % (pear*100, spear*100))
@@ -163,7 +163,7 @@ def validate(input_tens, model, epoch, criterion, COMM=None, error = 0.3):
 
 def plot_acc(ax, idx, acc, epoch, starting_ep):
     lx, ly = ax.lines[idx].get_data()
-    ax.lines[idx].set_data(np.append(lx, epoch),np.append(ly, acc) )
+    ax.lines[idx].set_data(np.append(lx, epoch+1),np.append(ly, acc) )
     if epoch == starting_ep:
         ax.set_ylim(acc*0.97,acc*1.03)
     else:
@@ -276,10 +276,6 @@ def do_training(h5input, h5label, h5imgs, outdir,
     else:
         transform = None
 
-    #nout = 1
-    #if label_sel is not None:
-    #    nout = len(label_sel)
-
     common_args = {"dev":dev,"labels": h5label, "images": h5imgs,
                    "use_geom": use_geom, "label_sel": label_sel,
                    "half_precision": half_precision}
@@ -312,9 +308,6 @@ def do_training(h5input, h5label, h5imgs, outdir,
     if cp is not None:
         optimizer.load_state_dict(cp["optimizer_state"])
 
-    #optimizer = optim.Adam(nety.parameters(), lr=lr, weight_decay=weight_decay)
-    #sched = torch.optim.lr_scheduler.ExponentialLR(optimizer,gamma=0.9)
-
     # setup recordkeeping
     if COMM is None or COMM.rank==0:
         if not os.path.exists(outdir):
@@ -336,7 +329,6 @@ def do_training(h5input, h5label, h5imgs, outdir,
         fig, (ax0, ax1) = setup_subplots(title)
 
     nety.train()
-    acc = 0
     mx_acc = 0
 
     shuffle = True
@@ -368,7 +360,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
         #    Trainings 
         # <><><><><><><><>
 
-        t = time.time()
+        t0 = time.time()
         losses = []
         all_losses = []
 
@@ -395,21 +387,9 @@ def do_training(h5input, h5label, h5imgs, outdir,
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            #l = loss.item()
-            #losses.append(l)
-            #all_losses.append(l)
-            #if i % 10 == 0 and len(losses)> 1:
-#
-#                ave_loss = np.mean(losses)
-#
-#                logger.info("Ep:%d, batch:%d, loss:  %.5f (latest acc=%.2f%%, max acc=%.2f%%)" \
-#                    % (epoch, i, ave_loss, acc, mx_acc))
-#                losses = []
-#
-#        ave_train_loss = np.mean(all_losses)
-        t = time.time()-t
+        ttrain = time.time()-t0
         if COMM is None or COMM.rank==0:
-            print("Traing time: %.4f sec" % t, flush=True)
+            print("Traing time: %.4f sec" % ttrain, flush=True)
 
         # <><><><><><><><
         #   Validation
@@ -440,7 +420,6 @@ def do_training(h5input, h5label, h5imgs, outdir,
         # <><><><><><><><
         #  End Validation
         # <><><><><><><><>
-        #sched.step()
 
         # optional save
         if (epoch+1)%save_freq==0 and (COMM is None or COMM.rank==0):
@@ -465,6 +444,8 @@ def save_checkpoint(filename, epoch, model, optimizer, loss, args):
         if isinstance(val, str):
             if os.path.isdir(val) or os.path.isfile(val):
                 args[i_arg] = name, os.path.abspath(val)
+        if name == "COMM":
+            args[i_arg] = name, None
 
     torch.save({"epoch": epoch, "model_state": model.state_dict(),
                 "optimizer_state": optimizer.state_dict(),
