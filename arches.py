@@ -112,7 +112,7 @@ class RESNetAny(RESNetBase):
     # not used anywhere yet...
 
     def __init__(self, netnum, dev=None, device_id=0, nout=1, dropout=False, ngeom=5, nchan=1,
-                 weights = None):
+                 weights=None):
         """
 
         :param netnum: resnet number (18,34,50,101,152)

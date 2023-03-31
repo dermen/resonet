@@ -126,7 +126,8 @@ class PngDset(Dataset):
 class H5SimDataDset(Dataset):
 
     def __init__(self, h5name, dev=None, labels="labels", images="images",
-                 start=None, stop=None, label_sel=None, use_geom=False, transform=None):
+                 start=None, stop=None, label_sel=None, use_geom=False, transform=None,
+                 half_precision=False):
         """
 
         :param h5name: hdf5 master file written by resonet/scripts/merge_h5s.py
@@ -135,22 +136,27 @@ class H5SimDataDset(Dataset):
         :param images: path to images dataset
         :param start: dataset index to begin
         :param stop: dataset index to stop
-        :param label_sel: optional list of labels to select. E.g. if labels is a dataset whose
-            shape is (Nsamples,5), e.g. 5 labels per sample, and you want to serve up labels 0 and 2, then
-            you should set label_sel=[0,2]
-            Default is [0], just use the first label
+        :param label_names: optional list of labels to select. This requires that the dataset
+            specified by labels has names. this can alternatively be a list of numbers
+            specifying the indices of the labels dataset
         :param use_geom: if the `geom` dataset exists, then use each iter should return 3-tuple (labels, images, geom)
             Otherwise, each iter returns 2-tuple (images,labels)
             The geom tensor can be used as a secondary input to certain models
         """
         if label_sel is None:
             label_sel = [0]
+        elif all([isinstance(l, str) for l in label_sel]):
+            label_sel = self._get_label_sel_from_label_names(h5name, labels, label_sel)
+        else:
+            if not all([isinstance(l, int) for l in label_sel]):
+                raise TypeError("label_sel should be all int or all str")
         self.nlab = len(label_sel)
         self.label_sel = label_sel
         self.labels_name = labels
         self.images_name = images
         self.h5name = h5name
         self.transform = transform
+        self.half_precision = half_precision
         self.has_geom = False  # if geometry is present in master file, it can be used as model input
         # open to get length quickly!
         with h5py.File(h5name, "r") as h:
@@ -176,18 +182,62 @@ class H5SimDataDset(Dataset):
         self.labels = None  # hdf5 dataset
         self.geom = None  # hdf5 dataset
 
+    @staticmethod
+    def _get_label_sel_from_label_names(fname, dset_name, label_names):
+        label_sel = []
+        with h5py.File(fname, "r") as h:
+            labels = h[dset_name]
+            if "names" not in labels.attrs:
+                raise KeyError("the dataset %s in file %s has no `names` attribute" % (dset_name, fname))
+            names = list( labels.attrs["names"])
+            for name in label_names:
+                if name not in names:
+                    raise ValueError("label name '%s' is not in 'names' attrs of  dset '%s' (in file %s)" % (name, dset_name, fname))
+                idx = names.index(name)
+                label_sel.append(idx)
+        #TODO what about label_sel ordering?
+        return label_sel
+
     def open(self):
         self.h5 = h5py.File(self.h5name, "r")
         self.images = self.h5[self.images_name]
+        assert self.images.dtype in [np.float16, np.float32]
         if self.images.dtype!=np.float32:
             raise ValueError("Images should be type float32!")
         self.labels = self.h5[self.labels_name][:, self.label_sel]
-        if self.labels.dtype==np.float64:
+        lab_dt = self.labels.dtype
+        if not self.half_precision and lab_dt != np.float32:
             self.labels = self.labels.astype(np.float32)
+        elif self.half_precision and lab_dt != np.float16:
+            self.labels = self.labels.astype(np.float16)
         if self.use_geom:
-            self.geom = self.h5["geom"][()]
-            if self.geom.dtype==np.float64:
+            geom_dset = self.h5["geom"]
+            self.geom = self.get_geom(geom_dset)
+            geom_dt = self.geom.dtype
+            if not self.half_precision and geom_dt!=np.float32:
                 self.geom = self.geom.astype(np.float32)
+            elif self.half_precision and geom_dt != np.float16:
+                self.geom = self.geom.astype(np.float16)
+
+    def get_geom(self, geom_dset):
+        ngeom = geom_dset.shape[-1]
+        inds = list(range(ngeom))
+        if "names" in geom_dset.attrs:
+            names = list(geom_dset.attrs["names"])
+
+            try:
+                inds = [names.index("detdist"),
+                        names.index('pixsize'),
+                    names.index('wavelen'),
+                    names.index("xdim"),
+                    names.index("ydim")]
+            except ValueError:
+                pass
+        geom = geom_dset[()][:, inds]
+        return geom
+
+
+
 
     @property
     def dev(self):
@@ -207,6 +257,9 @@ class H5SimDataDset(Dataset):
         img_dat, img_lab = self.images[i + self.start], self.labels[i + self.start]
         if len(img_dat.shape) == 2:
             img_dat = img_dat[None]
+        if self.half_precision and not self.images.dtype==np.float16:
+            #print("Warning, converting images from float32 to float16. This could slow things down.")
+            img_dat = img_dat.astype(np.float16)
         img_dat = torch.tensor(img_dat).to(self.dev)
         # if we are applying image augmentation
         if self.transform:

@@ -13,33 +13,33 @@ class TestModels:
     def test_resnet50_gpu(self):
         self.main(50)
         self.main(50,num_out=2)
-        self.main(50,num_out=2,num_geom=20)
-        self.main(50,num_out=3,num_geom=20,nchan=3)
-        self.main(50,num_out=3,num_geom=20,nchan=3, weight = "IMAGENET1K_V1")
+        self.main(50,num_out=2,num_geom=5)
+        self.main(50,num_out=3,num_geom=5,nchan=3)
+        self.main(50,num_out=3,num_geom=5,nchan=3, weight = "IMAGENET1K_V1")
 
     def test_resnet50_cpu(self):
         dev="cpu"
         self.main(50, dev=dev)
         self.main(50,num_out=2, dev=dev)
-        self.main(50,num_out=2, dev=dev, num_geom=20)
-        self.main(50,num_out=3, dev=dev, num_geom=20,nchan=3)
-        self.main(50,num_out=3,num_geom=20,nchan=3, weight = "IMAGENET1K_V1")
+        self.main(50,num_out=2, dev=dev, num_geom=5)
+        self.main(50,num_out=3, dev=dev, num_geom=5,nchan=3)
+        self.main(50,num_out=3,num_geom=5,nchan=3, weight = "IMAGENET1K_V1")
 
     def test_resnet18_gpu(self):
         self.main(18)
         self.main(18,num_out=2)
-        self.main(18,num_out=2,num_geom=20)
-        self.main(18,num_out=3,num_geom=20,nchan=3)
-        self.main(18,num_out=3,num_geom=20,nchan=3, weight = "IMAGENET1K_V1")
+        self.main(18,num_out=2,num_geom=5)
+        self.main(18,num_out=3,num_geom=5,nchan=3)
+        self.main(18,num_out=3,num_geom=5,nchan=3, weight = "IMAGENET1K_V1")
 
 
     def test_resnet18_cpu(self):
         dev="cpu"
         self.main(18, dev=dev)
         self.main(18,num_out=2, dev=dev)
-        self.main(18,num_out=2, dev=dev, num_geom=20)
-        self.main(18,num_out=3, dev=dev, num_geom=20,nchan=3)
-        self.main(18,num_out=3,num_geom=20,nchan=3, weight = "IMAGENET1K_V1")
+        self.main(18,num_out=2, dev=dev, num_geom=5)
+        self.main(18,num_out=3, dev=dev, num_geom=5,nchan=3)
+        self.main(18,num_out=3,num_geom=5,nchan=3, weight = "IMAGENET1K_V1")
 
 
     def test_resnet_wrapper(self):

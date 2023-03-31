@@ -7,7 +7,7 @@ import dxtbx
 from dials.array_family import flex
 from simtbx.diffBragg import utils
 from simtbx.nanoBragg import utils as nb_utils
-from simtbx.nanoBragg import nanoBragg_crystal, nanoBragg_beam, sim_data
+from simtbx.nanoBragg import sim_data
 
 
 from resonet.sims import paths_and_const

@@ -8,9 +8,13 @@ parser.add_argument("modelname", help="path to the .nn model", type=str)
 parser.add_argument("outfile", type=str, help="name of the output file that will be created")
 parser.add_argument("--arch", type=str, choices=["res50", "res18", "res34", "le"], default="res50",
                     help="architecture of model (default: res50)")
+parser.add_argument("--geom", action="store_true")
+parser.add_argument("--predictor", type=str, choices=["rad", "one_over_rad", "res", "one_over_res"],
+                    default="one_over_rad")
 parser.add_argument("--figdir", default=None, type=str,
                     help="A directory for PNG files to be written to. "
                          "Default: tempfigs_X where X is a string representing resolution")
+parser.add_argument("--maskFile", type=str, default=None)
 args = parser.parse_args()
 
 from libtbx.mpi4py import MPI
@@ -77,16 +81,18 @@ xdim, ydim = D[0].get_image_size()
 
 is_pil = xdim==2463
 
-mask = loader.get_raw_data().as_numpy_array() >= 0
-mask = ~binary_dilation(~mask, iterations=1)
-beamstop_rad = 170
-Y,X = np.indices((ydim, xdim))
-R = np.sqrt((X-xdim/2.)**2 + (Y-ydim/2.)**2)
-out_of_beamstop = R > beamstop_rad
-mask = np.logical_and(mask, out_of_beamstop)
+if args.maskFile is None:
+    mask = loader.get_raw_data().as_numpy_array() >= 0
+    mask = ~binary_dilation(~mask, iterations=2)
+    beamstop_rad = 50
+    Y,X = np.indices((ydim, xdim))
+    R = np.sqrt((X-xdim/2.)**2 + (Y-ydim/2.)**2)
+    out_of_beamstop = R > beamstop_rad
+    mask = np.logical_and(mask, out_of_beamstop)
+else:
+    mask = np.load(args.maskFile)
 
 #mask = np.logical_and(mask, ~hotpix)
-
 
 Nf = len(fnames)
 if COMM.rank==0:
@@ -117,9 +123,27 @@ for i_f, f in enumerate(fnames):
     else:
         tens = raw_img_to_tens(img, mask)
 
-    one_over_res = model(tens, geom).item()
-    res = 1/one_over_res
-    radius = reso2radius(res, D, B)/factor
+    inputs = (tens,)
+    if args.geom:
+        geom = torch.tensor([[detdist, pixsize, wavelen, xdim, ydim]])
+        inputs = (tens, geom)
+    pred = model(*inputs).item()
+
+    if args.predictor in ["one_over_res", "res"]:
+        if args.predictor =="res":
+            res = pred
+        else:
+            res = 1/pred
+        radius = reso2radius(res, D, B) / factor
+    else: # args.predictor in ["rad", "one_over_rad"]:
+        if args.predictor == "rad":
+            radius = pred
+        else:
+            radius = 1/pred
+        theta = 0.5*np.arctan(radius*factor*pixsize/detdist)
+        res = 0.5*wavelen/np.sin(theta)
+
+    print(radius, target_rad)
     all_res.append(res)
     rads.append(radius)
     rank_fnames.append(f)
@@ -158,5 +182,8 @@ if COMM.rank==0:
     print(s)
     np.savez(args.outfile, rads=rads, fnames=fnames, pixsize=pixsize, detdist=detdist, wavelen=wavelen, res=res,
              result_string=s, fignames=rank_fignames, factor=factor, target_rad=target_rad, target_res=target_res)
-    print("Saved file %s" % args.outfile)
+    o = args.outfile
+    if not o.endswith(".npz"):
+        o = o + ".npz"
+    print("Saved file %s" % o)
     print("Done.")
