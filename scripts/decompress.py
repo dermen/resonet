@@ -26,6 +26,7 @@ def main(jid):
         h = h5py.File(f, "r")
         imgs = h['images']
         labels = h['labels'][()]
+        geom = h['geom'][()]
         with h5py.File(fnew, "w") as hnew:
             dset = hnew.create_dataset("images", shape=imgs.shape, dtype=np.float32)
             for i_img in range(imgs.shape[0]):
@@ -33,7 +34,11 @@ def main(jid):
                    print(f"Job{jid} Decompressing file {i_f+1}/{len(fnames)}, shot {i_img+1}/{imgs.shape[0]}") 
                 dset[i_img] = imgs[i_img].astype(np.float32)
                 
-            hnew.create_dataset("labels", data=labels.astype(np.float32))
+            lab_dset = hnew.create_dataset("labels", data=labels.astype(np.float32))
+            geom_dset = hnew.create_dataset("geom", data=geom.astype(np.float32))
+            geom_dset.attrs['names'] = h['geom'].attrs['names']
+            lab_dset.attrs['names'] = h['labels'].attrs['names']
+
 
 Parallel(n_jobs=NJOBS)(delayed(main)(jid) for jid in range(NJOBS))
 

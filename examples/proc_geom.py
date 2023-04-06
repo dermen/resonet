@@ -37,10 +37,29 @@ assert os.path.isdir(real_data_dirname)
 MODEL_FNAME = args.modelname
 model = load_model(MODEL_FNAME, arch=args.arch)
 
-fnames = glob.glob(real_data_dirname + "/*cbf")
+fnames = glob.glob(real_data_dirname + "/*[0-9].cbf")
 if not fnames:
-    fnames = glob.glob(real_data_dirname + "/*mccd")
+    fnames = glob.glob(real_data_dirname + "/*[0-9].mccd")
     # TODO add tensor conversion for MCCD files...
+
+def sanitize_inputs(fnames):
+    good_fnames = []
+    for i,f in enumerate(fnames):
+        if i % COMM.size != COMM.rank:
+            continue
+        try:
+            loader = dxtbx.load(f)
+            good_fnames.append(f)
+        except KeyError:
+            continue
+
+        if COMM.rank==0:
+            print("Verifying shot %d/ %d" % (i, len(fnames)))
+    good_fnames = COMM.bcast(COMM.reduce(good_fnames))
+    return good_fnames
+
+
+fnames = sanitize_inputs(fnames)
 assert fnames
 
 
@@ -104,7 +123,7 @@ if COMM.rank==0:
 
 figdir = args.figdir
 if figdir is None:
-    figdir = "tempfigs_%.2fA" % target_res
+    figdir = args.outfile + ".tempfigs"
 if COMM.rank==0 and not os.path.exists(figdir):
     os.makedirs(figdir)
 COMM.barrier()
