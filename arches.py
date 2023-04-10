@@ -27,11 +27,11 @@ class RESNetBase(nn.Module):
             x = self.DROP(F.relu(self.fc1(x)))
         else:
             x = F.relu(self.fc1(x))
-        if y is not None:
-            x = torch.cat((x, y), dim=1)
-            x = self.fc2_geom(x)
-        else:
-            x = self.fc2(x)
+        #if y is not None:
+        #    x = torch.cat((x, y), dim=1)
+        #    x = self.fc2_geom(x)
+        #else:
+        x = self.fc2(x)
         if self.binary:
             x = self.Sigmoid(x)
         if y is not None:
