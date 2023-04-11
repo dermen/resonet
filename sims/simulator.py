@@ -30,7 +30,8 @@ class Simulator:
 
     def simulate(self, rot_mat=None, multi_lattice_chance=0, max_lat=2, mos_min_max=None,
                  pdb_name=None, plastic_stol=None, dev=0, mos_dom_override=None, vary_background_scale=False,
-                 randomize_dist=False, randomize_wavelen=False, randomize_center=None):
+                 randomize_dist=False, randomize_wavelen=False, randomize_center=False,
+                 randomize_scale=False):
         """
 
         :param rot_mat: specific orientation matrix for crystal
@@ -40,7 +41,11 @@ class Simulator:
         :param pdb_name: path to the pdb folder (for debug purposes).
         :param plastic_stol: path to the plastic `sin theta over lambda` file (debug purposes only)
         :param dev: device id (number from 0 to N-1 where N is number of nvidia GPUs available (run nvidia-smi to check)
-        :param mos_dom_override: number of mosaic blocks to simulate. If not, will be determined via make_sims.choose_mos function. 
+        :param mos_dom_override: number of mosaic blocks to simulate. If not, will be determined via make_sims.choose_mos function.
+        :param randomize_dist: randomize the detector distance
+        :param randomize_wavelen: randomize the wavelength
+        :param randomize_center: randomize the beam center
+        :param randomize_scale: randomize the crystal domain size
         :return: parameters and simulated image
         """
         if pdb_name is None:
@@ -48,7 +53,10 @@ class Simulator:
         else:
             assert os.path.exists(pdb_name)
             assert os.path.isdir(pdb_name)
-        C = make_crystal.load_crystal(pdb_name, rot_mat)
+        crystal_scale = 1
+        if randomize_scale:
+            crystal_scale = np.random.uniform(1,5)
+        C = make_crystal.load_crystal(pdb_name, rot_mat, crystal_scale)
         mos_min = mos_max = None  # will default to values in paths_and_const.py
         if mos_min_max is not None:
             mos_min, mos_max = mos_min_max
@@ -159,11 +167,13 @@ class Simulator:
         bg = air_and_water + plastic
         bg_scale = 1
         if vary_background_scale:
-            #low_bg_scale = np.random.choice([0.0125, 0.025, 0.05, 0.1, 0.25])
-            #norm_bg_scale = np.random.choice([1, 1.25])
-            #is_low_bg = np.random.random() < 2/7.  # 2 out of 7 datasets are collected in low background mode
-            #bg_scale = low_bg_scale if is_low_bg else norm_bg_scale
-            bg_scale = np.random.choice([0.0125, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 1.25])
+            # originally, bg scale was drawn like this
+            #bg_scale = np.random.choice([0.0125, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 1.25])
+            
+            low_bg_scale = np.random.choice([0.0125, 0.025, 0.05, 0.1])
+            norm_bg_scale = 1
+            is_low_bg = np.random.random() < 0.5  # 2 out of 7 datasets are collected in low background mode
+            bg_scale = low_bg_scale if is_low_bg else norm_bg_scale
             if self.verbose:
                 print("Scaling background by %.3f" % bg_scale)
 
@@ -182,7 +192,8 @@ class Simulator:
                       "num_lat": num_additional_lat+1,
                       "wavelength": nb_beam.spectrum[0][0],
                       "detector_distance": S.detector[0].get_distance(),
-                      "beam_center": S.detector[0].get_beam_centre_px(nb_beam.unit_s0)}
+                      "beam_center": S.detector[0].get_beam_centre_px(nb_beam.unit_s0),
+                      "Ncells_abc": C.Ncells_abc}
 
         S.D.free_all()
 

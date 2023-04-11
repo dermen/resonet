@@ -37,14 +37,16 @@ def convert_inds(amps, hkls, pdb_file, d_min=1.2):
     return new_amps, new_inds
 
 
-def get_Nabc(ucell):
+def get_Nabc(ucell, scale=1):
     """
 
     :param ucell: unit cell dimension
+    :param scale: optionally scale the domain size by a factor (greater than or equal to 1)
     :return: number of unit cells along each unit cell axis, according to domain size of crystal
             see paths_and_const.DOMAINSIZE_MM
     """
-    size_m = paths_and_const.DOMAINSIZE_MM*1e-3
+    assert scale >= 1
+    size_m = scale*paths_and_const.DOMAINSIZE_MM*1e-3
     Na = np.ceil(size_m / (ucell[0]*1e-10))
     Nb = np.ceil(size_m / (ucell[1]*1e-10))
     Nc = np.ceil(size_m / (ucell[2]*1e-10))
@@ -54,11 +56,12 @@ def get_Nabc(ucell):
     return Na, Nb, Nc
 
 
-def load_crystal(folder, rot_mat=None):
+def load_crystal(folder, rot_mat=None, scale=1):
     """
 
     :param folder:  pdb folder, e.g. /data/dermen/sims/pdbs/2itu
     :param rot_mat: rotation matrix of crystal (otherwise it will be aligned in the standard PDB convention)
+    :param scale: scale factor for mosaic domain size (baseline is DOMAINSIZE_MM in paths_and_const.py)
     :return:
     """
     C = nanoBragg_crystal.NBcrystal(init_defaults=False)
@@ -71,7 +74,7 @@ def load_crystal(folder, rot_mat=None):
         Umat = C.dxtbx_crystal.get_U()
         Umat = np.dot(rot_mat, np.reshape(Umat,(3,3)))
         C.dxtbx_crystal.set_U(tuple(Umat.ravel()))
-    C.Ncells_abc = get_Nabc(P.p1_ucell)
+    C.Ncells_abc = get_Nabc(P.p1_ucell, scale)
     fmodel_file = os.path.join(folder, "fmodel_1p2.mtz")
     ma = any_reflection_file(fmodel_file).as_miller_arrays()[0]
     C.miller_array = ma

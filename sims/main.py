@@ -34,6 +34,7 @@ def args(use_joblib=False):
     parser.add_argument("--randDist", action="store_true", help="randomize the detector distance")
     parser.add_argument("--randCent", action="store_true", help="randomize the beam center")
     parser.add_argument("--randWave", action="store_true", help="randomize the beam wavelength")
+    parser.add_argument("--randScale", action="store_true", help="randomize the crystal domain size")
     parser.add_argument("--expt", type=str)
     parser.add_argument("--mask", type=str)
     parser.add_argument("--maskFileList", type=str)
@@ -137,8 +138,6 @@ def run(args, seeds, jid, njobs):
             o.write("working dir: %s\n" % os.getcwd())
             o.write("Python command: " + " ".join(sys.argv) + "\n")
 
-    all_param = []
-    all_geom = []
     with h5py.File(outname, "w") as out:
         out.create_dataset("nominal_mask", data=mask)
         dset = out.create_dataset("images",
@@ -157,6 +156,20 @@ def run(args, seeds, jid, njobs):
                                           shape=(Nshot,) + (ydim, xdim),
                                           dtype=np.float32)
 
+        param_names = ["reso", "one_over_reso",
+                       "radius", "one_over_radius",
+                       "is_multi", "multi_lat_angle_sigma",
+                       "num_lat", "bg_scale",
+                       "beamstop_rad", "detdist", "wavelen",
+                       "beam_center_fast", "beam_center_slow",
+                       "cent_fast_train", "cent_slow_train",
+                       "Na", "Nb", "Nc"]
+        geom_names = ["detdist", "wavelen", "pixsize", "xdim", "ydim"]
+        lab_dset = out.create_dataset("labels", dtype=np.float32, shape=(Nshot, len(param_names)) )
+        geom_dset = out.create_dataset("geom", dtype=np.float32, shape=(Nshot, len(geom_names)))
+        lab_dset.attrs["names"] = param_names
+        geom_dset.attrs["names"] = geom_names
+
         # list of rotation matrices (length is Nshot)
         rotMats = Rotation.random(Nshot).as_matrix()
         times = []  # store processing times per shot
@@ -170,7 +183,8 @@ def run(args, seeds, jid, njobs):
                                       vary_background_scale=args.varyBgScale,
                                       randomize_dist=args.randDist,
                                       randomize_center=args.randCent,
-                                      randomize_wavelen=args.randWave)
+                                      randomize_wavelen=args.randWave,
+                                      randomize_scale=args.randScale)
 
             # at what pixel radius does this resolution corresond to
             radius = reso2radius(params["reso"], DET, BEAM)
@@ -237,8 +251,8 @@ def run(args, seeds, jid, njobs):
             # convert cent_x, cent_y to downsampled version
             cent_x_train = (cent_x - xdim*.5)/factor
             cent_y_train = (cent_y - ydim*.5)/factor
-            all_param.append(
-                [params["reso"], 1/params["reso"],
+            Na, Nb, Nc = params["Ncells_abc"]
+            param_arr = [params["reso"], 1/params["reso"],
                  radius/factor, factor/radius,
                  params["multi_lattice"],
                  params["ang_sigma"],
@@ -248,37 +262,29 @@ def run(args, seeds, jid, njobs):
                  params["detector_distance"],
                  params["wavelength"],
                  cent_x, cent_y,
-                 cent_x_train, cent_y_train])
-            param_names = ["reso", "one_over_reso",
-                           "radius", "one_over_radius",
-                           "is_multi", "multi_lat_angle_sigma",
-                           "num_lat", "bg_scale",
-                           "beamstop_rad", "detdist", "wavelen",
-                           "beam_center_fast", "beam_center_slow",
-                           "cent_fast_train", "cent_slow_train"]
-            all_geom.append([params["detector_distance"],
+                 cent_x_train, cent_y_train,
+                 Na, Nb, Nc]
+            geom_array = [params["detector_distance"],
                              params["wavelength"],
                              pixsize,
-                             xdim, ydim])
+                             xdim, ydim]
 
             if args.saveRaw:
                 raw_dset[i_shot] = img
             maximg = maxbin.maximg_downsample(img*shot_mask, factor)
             # normalize and convert
-            maximg[ maximg < 0] = 0
+            maximg[maximg < 0] = 0
             maximg = np.sqrt(maximg)
             maximg[maximg > IMAX] = IMAX
             maximg = maximg.astype(np.float32)
             maximg_dset[i_shot] = maximg
 
             dset[i_shot] = quad
+            geom_dset[i_shot] = geom_array
+            lab_dset[i_shot] = param_arr
             t = time.time()-t
             times.append(t)
             if jid == 0:
                 print("Done with shot %d / %d (took %.4f sec)" % (i_shot+1, Nshot, t), flush=True)
-        lab_dset = out.create_dataset("labels", data=all_param)
-        lab_dset.attrs["names"] = param_names
-        geom_dset = out.create_dataset("geom", data=all_geom, dtype=np.float32)
-        geom_dset.attrs["names"] = ["detdist", "wavelen", "pixsize", "xdim", "ydim"]
         if jid == 0:
             print("Done! Takes %.4f sec on average per image" % np.mean(times))
