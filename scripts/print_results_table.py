@@ -3,11 +3,15 @@ import numpy as np
 import glob
 import re
 import tabulate
-import sys
 
-glob_s = sys.argv[1]
-#glob_s = "test.[0-9][0-9][0-9].npz"
-names = glob.glob(glob_s)
+from argparse import ArgumentParser
+parser = ArgumentParser()
+parser.add_argument("inputs", type=str, nargs="+", help="wild cards for specifying .npz files")
+args = parser.parse_args()
+
+names = []
+for glob_s in args.inputs:
+    names += glob.glob(glob_s)
 
 print(names)
 

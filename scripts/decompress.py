@@ -23,7 +23,10 @@ def main(jid):
         if i_f % NJOBS != jid:
             continue
         fnew = f.replace("compressed", "rank")
-        h = h5py.File(f, "r")
+        try:
+            h = h5py.File(f, "r")
+        except:
+            continue
         imgs = h['images']
         labels = h['labels'][()]
         geom = h['geom'][()]
