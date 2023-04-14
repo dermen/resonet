@@ -20,15 +20,25 @@ if os.path.exists(args.output) and not args.overwrite:
 
 from loaders import PngDset
 png_dset = PngDset(pngdir=args.pngdir, propfile=args.propfile, convert_res=False, invert_res=False,
-                   dev="cpu")
+                   dev="cpu", reso_only_mode=False)
 Nimg = len(png_dset)
-labels = []
-imgs = []
+
+label_names = list(png_dset.labels)
+Nlab = len(label_names)
 
 with h5py.File(args.output, "w") as h:
-    imgs_dset = h.create_dataset('images', dtype=np.float32, shape=(Nimg, 1, 512, 512))
-    all_img_res = np.zeros((Nimg,1), np.float32)
-    all_img_rad = np.zeros((Nimg,1), np.float32)
+    imgs_dset = h.create_dataset('images', dtype=np.float32, shape=(Nimg, 512, 512))
+
+    labels_dset = h.create_dataset('labels', dtype=np.float32, shape=(Nimg, Nlab))
+    labels_dset.attrs["names"] = label_names
+    np.savez(args.output + ".npz", pdbid_map=png_dset.pdbid_map, stolid_map=png_dset.stolid_map)
+    #labels_dset.attrs["pdbid_map"] = png_dset.pdbid_map
+    #labels_dset.attrs["stolid_map"] = png_dset.stolid_map
+
+    geom = [200, 0.075, 0.977794, 4150, 4371]
+    geom_dset = h.create_dataset("geom", data=[geom]*Nimg, dtype=np.float32)
+    geom_dset.attrs["names"] = ["detdist", "pixsize", "wavelen", "xdim", "ydim"]
+
     ttot = 0
     for i_img in range(Nimg):
         if i_img > 0 and i_img % 10 == 0:
@@ -37,26 +47,10 @@ with h5py.File(args.output, "w") as h:
             print("Done with shot %d/%d. Est. time remaining=%.2f sec." % (i_img+1, Nimg, tremain))
         # get image data and resolution
         t = time.time()
-        img_dat, img_res = map(lambda x: x.numpy(), png_dset[i_img])
+        img_dat, img_lab = map(lambda x: x.numpy(), png_dset[i_img])
         # save to image hdf5 file
         imgs_dset[i_img] = img_dat
-        all_img_res[i_img] = img_res
+        labels_dset[i_img] = img_lab[0]
         ttot += (time.time()-t)
 
-        # convert to radius
-        all_img_rad[i_img, 0] = png_dset._convert_res2rad(img_res[0])
-
-    h.create_dataset("rad", data=all_img_rad, dtype=np.float32)
-    h.create_dataset("res", data=all_img_res, dtype=np.float32)
-    h.create_dataset("one_over_rad", data=1/all_img_rad, dtype=np.float32)
-    h.create_dataset("one_over_res", data=1/all_img_res, dtype=np.float32)
-    geom_data = np.zeros((Nimg, 5), dtype=np.float32)
-
-    print("Storing geom data as a dataset")
-    detdist = 200  # mm
-    pixsize = 0.075  # mm
-    wavelen = 0.977794  # angstrom
-    xdim, ydim = 4150, 4371
-    geom_data[:] = np.array([detdist, pixsize, wavelen, xdim, ydim])
-    h.create_dataset("geom", data=geom_data, dtype=np.float32)
     print("Done.")

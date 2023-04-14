@@ -14,7 +14,8 @@ from PIL import Image
 class PngDset(Dataset):
 
     def __init__(self, pngdir=None, propfile=None, quad="A", start=None, stop=None,
-                 dev=None, invert_res=False, transform=None, convert_res=False, use_float=True):
+                 dev=None, invert_res=False, transform=None, convert_res=False, use_float=True,
+                 reso_only_mode=True):
         """
 
         :param pngdir: path to folder resmos2 containing PNG files
@@ -27,6 +28,7 @@ class PngDset(Dataset):
         :param transform: whether to apply image transformations
         :param convert_res: whether to convert resolution labels to radii
         :param use_float: convert tensors to single precision. This is necessary for MSELoss
+        :param reso_only_mode: labels only include resolution
         """
         if pngdir is None:
             pngdir = "."
@@ -43,7 +45,6 @@ class PngDset(Dataset):
         assert self.fnames
         self.nums = [self.get_num(f) for f in self.fnames]
         self.img_sh = 546, 518
-        self.props = ["reso"]
 
         self.prop = pandas.read_csv(
             propfile,
@@ -51,13 +52,29 @@ class PngDset(Dataset):
             names=["num", "reso", "mos", "B", "icy1", "icy2", "cell1", \
                    "cell2", "cell3", "SGnum", "pdbid", "stolid"])
 
+        self.unique_pdb = self.prop.pdbid.unique()
+        self.pdbid_map = {pdb: i for i,pdb in enumerate(self.unique_pdb)}
+        self.prop.loc[:, "pdbid"] = [self.pdbid_map[pdb] for pdb in self.prop.pdbid]
+
+        self.unique_stol = self.prop.stolid.unique()
+        self.stolid_map = {stol: i for i,stol in enumerate(self.unique_stol)}
+        self.prop.loc[:, "stolid"] = [self.stolid_map[stol] for stol in self.prop.stolid]
+
+        self.prop["rad"] = self._convert_res2rad(self.prop.reso)
+        self.prop["one_over_rad"] = 1/self.prop.rad
+        self.prop["one_over_reso"] = 1/self.prop.reso
+
         if convert_res:
             self.prop.loc[:, "reso"] = self._convert_res2rad(self.prop.reso)
 
         if invert_res:
             self.prop.loc[:,"reso"] = 1/self.prop.reso
 
-        self.labels = self.prop[["num", "reso"]]
+        self.reso_only_mode = reso_only_mode
+        if reso_only_mode:
+            self.labels = self.prop[["num", "reso"]]
+        else:
+            self.labels = self.prop
         self.dev = dev  # pytorch device ID
 
         Ntotal = len(self.fnames)
@@ -111,7 +128,9 @@ class PngDset(Dataset):
         img_dat = np.reshape(img.getdata(), self.img_sh).astype(np.float32)
 
         num = self.nums[i+self.start]
-        img_lab = self.labels.query("num==%d" % num).reso
+        img_lab = self.labels.query("num==%d" % num)
+        if self.reso_only_mode:
+            img_lab = img_lab.reso
         img_dat = torch.tensor(img_dat[:512,:512][None]).to(self.dev)
         img_lab = torch.tensor(img_lab.values).to(self.dev)
         # Apply image transform here
