@@ -71,3 +71,38 @@ def raw_img_to_tens_mar(raw_img, MASK, numpy_only=False, howbin='max'):
         img = torch.tensor(img).view((1,1,512,512)).to("cpu")
     return img
 
+
+def raw_img_to_tens_jung(raw_img, mask, numpy_only=False, cent=None, IMAX=None, adu_per_photon=9.481, quad="B"):
+    assert quad in ["A","B","C","D"]
+
+    if cent is None:
+        cent = 2106, 2224  # from swissFEL geom
+    ds_fact = 4  # downsample factor
+    cent_ds = int(round(cent[0]/ds_fact)), int(round(cent[1]/ds_fact))
+    img = maxbin.maximg_downsample((raw_img/adu_per_photon)*mask, factor=4)
+    img[img < 0] = 0
+    if IMAX is None:
+        IMAX = 14**2
+    img[img > IMAX] = IMAX
+    img = np.sqrt(img)
+    img = img.astype(np.uint8).astype(np.float32)
+
+    x,y = cent_ds
+    if quad=="A":
+        subimg=img[y-512:y, x-512:x]
+        quad = np.rot90(subimg, k=2)
+        # optionally pad quad image to be 512 x 512
+    elif quad=="B":
+        subimg = img[y-512:y, x:x+512]
+        quad = np.rot90(subimg, k=3)
+    elif quad=="C":
+        subimg = img[y:512+y, x-512:x]
+        quad = np.rot90(subimg, k=1)
+    else: # quad=="D":
+        subimg = img[y:512+y, x:512+x]
+        quad = subimg
+
+    if HAS_TORCH and not numpy_only:
+        quad = torch.tensor(quad.copy()).view((1,1,512,512)).to("cpu")
+
+    return quad
