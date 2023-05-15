@@ -82,7 +82,7 @@ def raw_img_to_tens_jung(raw_img, mask, numpy_only=False, cent=None, IMAX=None, 
     img = maxbin.maximg_downsample((raw_img/adu_per_photon)*mask, factor=4)
     img[img < 0] = 0
     if IMAX is None:
-        IMAX = 14**2
+        IMAX = 2**14  #14**2
     img[img > IMAX] = IMAX
     img = np.sqrt(img)
     img = img.astype(np.uint8).astype(np.float32)
@@ -106,3 +106,50 @@ def raw_img_to_tens_jung(raw_img, mask, numpy_only=False, cent=None, IMAX=None, 
         quad = torch.tensor(quad.copy()).view((1,1,512,512)).to("cpu")
 
     return quad
+
+
+
+def raw_img_to_tens_pil2(raw_img, mask, numpy_only=False, cent=None, IMAX=None, adu_per_photon=1, quad="B", ds_fact=2, sqrt=True):
+    assert quad in ["A","B","C","D"]
+
+    if cent is None:
+        cent = 1231.5, 1263.5
+    cent_ds = int(round(cent[0]/ds_fact)), int(round(cent[1]/ds_fact))
+    #if lcn:
+    #   from skimage import exposure
+    #    new_img = exposure.equalize_adapthist(img*mask, kernel_size=16)
+
+    img = maxbin.maximg_downsample((raw_img/adu_per_photon)*mask, factor=ds_fact)
+    img *= mask
+    img[img < 0] = 0
+    if IMAX is None:
+        IMAX = 255**2
+    img[img >= IMAX] = IMAX
+    if sqrt:
+        img = np.sqrt(img)
+        img = img.astype(np.uint8)
+    else:
+        img = img.astype(np.int32)
+    img = img.astype(np.float32)
+
+    x,y = cent_ds
+    n = 1024//ds_fact
+    if quad=="A":
+        subimg=img[y-n:y, x-n:x]
+        quad = np.rot90(subimg, k=2)
+        # optionally pad quad image to be 512 x 512
+    elif quad=="B":
+        subimg = img[y-n:y, x:x+n]
+        quad = np.rot90(subimg, k=3)
+    elif quad=="C":
+        subimg = img[y:n+y, x-n:x]
+        quad = np.rot90(subimg, k=1)
+    else: # quad=="D":
+        subimg = img[y:n+y, x:n+x]
+        quad = subimg
+
+    if HAS_TORCH and not numpy_only:
+        quad = torch.tensor(quad.copy()).view((1,1,n,n)).to("cpu")
+
+    return quad
+
