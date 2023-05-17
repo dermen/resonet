@@ -55,7 +55,7 @@ class Simulator:
             assert os.path.isdir(pdb_name)
         crystal_scale = 1
         if randomize_scale:
-            crystal_scale = np.random.uniform(1,5)
+            crystal_scale = np.random.choice([1,1,1,1,2,2,3])
         C = make_crystal.load_crystal(pdb_name, rot_mat, crystal_scale)
         mos_min = mos_max = None  # will default to values in paths_and_const.py
         if mos_min_max is not None:
@@ -170,9 +170,9 @@ class Simulator:
             # originally, bg scale was drawn like this
             #bg_scale = np.random.choice([0.0125, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 1.25])
             
-            low_bg_scale = np.random.choice([0.0125, 0.025, 0.05, 0.1])
-            norm_bg_scale = 1
-            is_low_bg = np.random.random() < 0.5  # 2 out of 7 datasets are collected in low background mode
+            low_bg_scale = np.random.choice([0.05, 0.05,  0.1])
+            norm_bg_scale = np.random.choice([1, 1, 1.25, 1.5, 2])
+            is_low_bg = np.random.random() < 0.5 
             bg_scale = low_bg_scale if is_low_bg else norm_bg_scale
             if self.verbose:
                 print("Scaling background by %.3f" % bg_scale)
