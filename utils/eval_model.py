@@ -82,7 +82,7 @@ def raw_img_to_tens_jung(raw_img, mask, numpy_only=False, cent=None, IMAX=None, 
     img = maxbin.maximg_downsample((raw_img/adu_per_photon)*mask, factor=4)
     img[img < 0] = 0
     if IMAX is None:
-        IMAX = 2**14  #14**2
+        IMAX = 2**14
     img[img > IMAX] = IMAX
     img = np.sqrt(img)
     img = img.astype(np.uint8).astype(np.float32)

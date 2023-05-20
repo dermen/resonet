@@ -24,8 +24,6 @@ print("Combining %d files" % len(fnames))
 
 dummie_h = h5py.File(fnames[0], "r")
 
-label_names = dummie_h["labels"].attrs["names"]
-
 #has_geom = "geom" in list(dummie_h.keys())
 #ngeom_params = 0
 #if has_geom:
@@ -72,8 +70,9 @@ print("Total number of shots=%d" % total_imgs)
 with h5py.File(args.outname, "w") as H:
     for key in Layouts:
         vd = H.create_virtual_dataset(key, Layouts[key])
-        if "names" in dummie_h[key].attrs:
-            vd.attrs["names"] = dummie_h[key].attrs["names"]#label_names
+        for attr in ["names", "pdbmap"]:
+            if attr in dummie_h[key].attrs:
+                vd.attrs[attr] = dummie_h[key].attrs[attr]
 
         #if key == "labels":
         #    vd.attrs["names"] = label_names

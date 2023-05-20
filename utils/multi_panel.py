@@ -2,16 +2,18 @@ import numpy as np
 from simtbx.diffBragg.utils import image_data_from_expt
 
 
-def project_jungfrau(expt, normalize=True, mask=None, return_center=False):
+def project_jungfrau(expt, normalize=True, mask=None, return_center=False, img=None):
     """
 
     :param expt: dxtbx experiment object
     :param normalize: whether to use mean (versus sum) for binning
+    :param mask: optional mask
     :return: returns 2D projection of image data from expt
     """
     P, F, S = make_psf(expt.detector)
     all_coords = []
-    img = image_data_from_expt(expt)
+    if img is None:
+        img = image_data_from_expt(expt)
     _, Ydim, Xdim = img.shape
     Jcoord, Icoord = np.indices((Ydim, Xdim))
 

@@ -31,7 +31,7 @@ class Simulator:
     def simulate(self, rot_mat=None, multi_lattice_chance=0, max_lat=2, mos_min_max=None,
                  pdb_name=None, plastic_stol=None, dev=0, mos_dom_override=None, vary_background_scale=False,
                  randomize_dist=False, randomize_wavelen=False, randomize_center=False,
-                 randomize_scale=False):
+                 randomize_scale=False, low_bg_chance=0, uniform_reso=False, roi=None):
         """
 
         :param rot_mat: specific orientation matrix for crystal
@@ -46,6 +46,8 @@ class Simulator:
         :param randomize_wavelen: randomize the wavelength
         :param randomize_center: randomize the beam center
         :param randomize_scale: randomize the crystal domain size
+        :param low_bg_chance: probability to simulate a low backgroun shot
+        :param uniform_reso: sample resolution uniformly to edge of camera
         :return: parameters and simulated image
         """
         if pdb_name is None:
@@ -84,7 +86,7 @@ class Simulator:
             shot_det = deepcopy(self.DET)
             if randomize_dist:
                 curr_dist = self.DET[0].get_distance()
-                new_dist = np.random.uniform(200, 300)
+                new_dist = np.random.uniform(200, 350)
                 dist_shift = new_dist - curr_dist
                 shot_det = shift_distance(shot_det, dist_shift)
 
@@ -94,7 +96,7 @@ class Simulator:
                 new_cent_x, new_cent_y = np.random.uniform(-cent_window_pix, cent_window_pix, 2)
                 shot_det = shift_center(shot_det, new_cent_x, new_cent_y)
 
-            air_and_water = make_sims.get_background(shot_det, shot_beam)
+            air_and_water = make_sims.get_background(shot_det, shot_beam, roi=roi)
             # stol of every pixel:
             STOL = make_sims.get_theta_map(shot_det, shot_beam)
 
@@ -112,6 +114,10 @@ class Simulator:
         S.detector = shot_det
         S.instantiate_nanoBragg(oversample=1)
 
+        # for this detector, this is the minimum resolution allowed
+        high_reso = shot_det.get_max_resolution(shot_beam.get_s0())
+        if roi is not None:
+            S.D.region_of_interest = roi 
         if self.verbose:
             S.D.show_params()
             print("Simulating spots!", flush=True)
@@ -160,9 +166,12 @@ class Simulator:
             plastic_stol = np.random.choice(paths_and_const.RANDOM_STOLS)
         else:
             assert os.path.exists(plastic_stol)
-        plastic = make_sims.random_bg(shot_det, shot_beam, plastic_stol)
+        plastic = make_sims.random_bg(shot_det, shot_beam, plastic_stol, roi=roi)
 
-        reso, Bfac_img = make_sims.get_Bfac_img(STOL)
+        if uniform_reso:
+            reso, Bfac_img = make_sims.get_Bfac_img(STOL,high_reso)
+        else:
+            reso, Bfac_img = make_sims.get_Bfac_img(STOL)
 
         bg = air_and_water + plastic
         bg_scale = 1
@@ -170,9 +179,9 @@ class Simulator:
             # originally, bg scale was drawn like this
             #bg_scale = np.random.choice([0.0125, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 1.25])
             
-            low_bg_scale = np.random.choice([0.05, 0.05,  0.1])
+            low_bg_scale = np.random.choice([0.01, 0.05, 0.05,  0.1])
             norm_bg_scale = np.random.choice([1, 1, 1.25, 1.5, 2])
-            is_low_bg = np.random.random() < 0.5 
+            is_low_bg = np.random.random() < low_bg_chance
             bg_scale = low_bg_scale if is_low_bg else norm_bg_scale
             if self.verbose:
                 print("Scaling background by %.3f" % bg_scale)
@@ -193,7 +202,10 @@ class Simulator:
                       "wavelength": nb_beam.spectrum[0][0],
                       "detector_distance": S.detector[0].get_distance(),
                       "beam_center": S.detector[0].get_beam_centre_px(nb_beam.unit_s0),
-                      "Ncells_abc": C.Ncells_abc}
+                      "Ncells_abc": C.Ncells_abc,
+                      "pdb_name": pdb_name, 
+                      "mos_spread": mos_spread,
+                      "crystal_scale": crystal_scale}
 
         S.D.free_all()
 

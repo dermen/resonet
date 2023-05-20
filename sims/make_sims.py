@@ -14,11 +14,14 @@ from resonet.sims import paths_and_const
 from resonet.sims import make_crystal
 
 
-def choose_res():
+def choose_res(hres=None):
     """ choose a random resolution"""
     if paths_and_const.FIX_RES is not None:
         return paths_and_const.FIX_RES
-    res = 0.5/(paths_and_const.STOL_MIN + np.random.random()*paths_and_const.STOL_RNG)
+    if hres is None:
+        res = 0.5/(paths_and_const.STOL_MIN + np.random.random()*paths_and_const.STOL_RNG)
+    else:
+        res = np.random.uniform(hres, 6)  # maximum of 6 Angstrom  
     return res
 
 
@@ -27,9 +30,9 @@ def choose_pdb():
     return np.random.choice(paths_and_const.RANDOM_PDBS)
 
 
-def choose_deltaB():
+def choose_deltaB(hres=None):
     # choose a delta -Bfactor to scale the scattering
-    res = choose_res()
+    res = choose_res(hres)
     B = 4*res**2 + 12
     return B-10
 
@@ -56,18 +59,19 @@ def choose_stol():
     return flex.vec2_double( Fbg, stol)
 
 
-def random_bg(D,B, stol_name):
+def random_bg(D,B, stol_name, roi=None):
     """
 
     :param D: dxtbx detector
     :param B: dxtbx beam
     :param stol_name: flex.vec2d scattering profile (sin theta vs lambda)
+    :param  roi: nanoBragg region_of_interest
     :return:
     """
     # simulate scattering from a plastic scattering profile
     funky_bg = nb_utils.sim_background(D, B, [B.get_wavelength()], [1], paths_and_const.FLUX,
                 molecular_weight=12, sample_thick_mm=paths_and_const.XTALSIZE_MM,
-                Fbg_vs_stol=load_stol(stol_name))
+                Fbg_vs_stol=load_stol(stol_name), roi=roi)
     return funky_bg.as_numpy_array()
 
 
@@ -81,7 +85,7 @@ def load_stol(name):
     return flex.vec2_double(list(zip(Fbg, stol)))
 
 
-def get_background(D,B, no_air=False, no_water=False, water_path_mm=None, air_path_mm=None):
+def get_background(D,B, no_air=False, no_water=False, water_path_mm=None, air_path_mm=None, roi=None):
 
     air = 0
     if not no_air:
@@ -89,7 +93,7 @@ def get_background(D,B, no_air=False, no_water=False, water_path_mm=None, air_pa
             air_path_mm = 5
         air = nb_utils.sim_background(D, B, [B.get_wavelength()], [1], paths_and_const.FLUX, molecular_weight=14,
                                       sample_thick_mm=air_path_mm,
-                                   Fbg_vs_stol=load_stol(paths_and_const.AIR_STOL), density_gcm3=1.2e-3)  #
+                                   Fbg_vs_stol=load_stol(paths_and_const.AIR_STOL), density_gcm3=1.2e-3, roi=roi)  #
 
     water = 0
     if not no_water:
@@ -97,27 +101,27 @@ def get_background(D,B, no_air=False, no_water=False, water_path_mm=None, air_pa
             water_path_mm = paths_and_const.XTALSIZE_MM
         water = nb_utils.sim_background(D, B, [B.get_wavelength()], [1], paths_and_const.FLUX, molecular_weight=18,
                                    sample_thick_mm=water_path_mm,
-                                   Fbg_vs_stol=load_stol(paths_and_const.WATER_STOL), density_gcm3=1)  #
+                                   Fbg_vs_stol=load_stol(paths_and_const.WATER_STOL), density_gcm3=1, roi=roi)  #
 
     background = air + water
 
     return background.as_numpy_array()
 
 
-def get_Bfac_img(STOL):
+def get_Bfac_img(STOL, hres=None):
     """
 
     :param STOL: sin-theta-over-lambda of every pixel on detector
     :return: delta-Bfactor at every pixel (for aadjusting the spot resolution)
     """
-    B, stol, factor = get_deltaB_factor()
+    B, stol, factor = get_deltaB_factor(hres)
     I = interp1d(stol, factor, bounds_error=False, fill_value=0)
     Bfac_img = I(STOL.ravel()).reshape(STOL.shape)
     reso = np.sqrt(.25*(B + 10 - 12))
     return reso, Bfac_img
 
 
-def get_deltaB_factor():
+def get_deltaB_factor(hres=None):
     """
 
     :return: 3-tuple,
@@ -126,7 +130,7 @@ def get_deltaB_factor():
         -third element is the B-factor scale at each sin-theta-over-lambda value
     """
     stol = np.arange(0, 0.5, 0.01)
-    B = choose_deltaB()
+    B = choose_deltaB(hres)
     exponent = 2 * B * stol ** 2
     is_bad = exponent > 100
     fac = np.exp(-exponent)

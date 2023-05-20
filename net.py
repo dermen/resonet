@@ -427,9 +427,10 @@ def do_training(h5input, h5label, h5imgs, outdir,
             torch.save(nety.state_dict(), outname)
             plt.savefig(outname.replace(".nn", "_train.png"))
             save_results_fig(outname, test_lab, test_pred)
-            restart_file = outname.replace(".nn", ".chkpt")
-            save_checkpoint(restart_file,
-                            epoch, nety, optimizer, train_loss, training_args)
+            if True: #False:# save_cps:
+                restart_file = outname.replace(".nn", ".chkpt")
+                save_checkpoint(restart_file,
+                                epoch, nety, optimizer, train_loss, training_args)
 
     # final save! 
     if COMM is None or COMM.rank==0:
@@ -437,6 +438,9 @@ def do_training(h5input, h5label, h5imgs, outdir,
         torch.save(nety.state_dict(), outname)
         plt.savefig(outname.replace(".nn", "_train.png"))
         save_results_fig(outname, test_lab, test_pred)
+        restart_file = outname.replace(".nn", ".chkpt")
+        save_checkpoint(restart_file,
+                        epoch, nety, optimizer, train_loss, training_args)
 
 
 def save_checkpoint(filename, epoch, model, optimizer, loss, args):

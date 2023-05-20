@@ -59,7 +59,7 @@ def sanitize_inputs(fnames):
     return good_fnames
 
 
-fnames = sanitize_inputs(fnames)
+#fnames = sanitize_inputs(fnames)
 assert fnames
 
 
@@ -103,7 +103,7 @@ is_pil = xdim==2463
 if args.maskFile is None:
     mask = loader.get_raw_data().as_numpy_array() >= 0
     mask = ~binary_dilation(~mask, iterations=2)
-    beamstop_rad = 50
+    beamstop_rad = 10
     Y,X = np.indices((ydim, xdim))
     R = np.sqrt((X-xdim/2.)**2 + (Y-ydim/2.)**2)
     out_of_beamstop = R > beamstop_rad

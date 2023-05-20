@@ -1,12 +1,11 @@
 
 import os
 import h5py
-import numpy as np
-
 from cctbx.array_family import flex
 from cctbx import miller, crystal
 from simtbx.nanoBragg import nanoBragg_crystal, nanoBragg_beam
 from iotbx.reflection_file_reader import any_reflection_file
+import numpy as np
 
 
 from resonet.sims import paths_and_const
@@ -75,8 +74,11 @@ def load_crystal(folder, rot_mat=None, scale=1):
         Umat = np.dot(rot_mat, np.reshape(Umat,(3,3)))
         C.dxtbx_crystal.set_U(tuple(Umat.ravel()))
     C.Ncells_abc = get_Nabc(P.p1_ucell, scale)
-    fmodel_file = os.path.join(folder, "fmodel_1p2.mtz")
+    fmodel_file = os.path.join(folder, "fmodel.mtz")
+    #fmodel_file = os.path.join(folder, "fmodel_1p2.mtz")
     ma = any_reflection_file(fmodel_file).as_miller_arrays()[0]
+    if ma.is_complex_array():
+        ma = ma.as_amplitude_array()
     C.miller_array = ma
     C.symbol = ma.space_group_info().type().lookup_symbol()
     return C

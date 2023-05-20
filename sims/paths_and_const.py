@@ -35,6 +35,7 @@ FIX_RES = None # 0.5/.29989  # optionally fix the resolution for all simulations
 
 # these are the PDB folders containing pdb files and P1.hkl files
 RANDOM_PDBS = [d for d in glob.glob(os.path.join(dirname, "pdbs/*")) if len(os.path.basename(d))==4 and os.path.isdir(d)]
+PDB_MAP = {name: i for i, name in enumerate(RANDOM_PDBS)}
 
 # mosaicity bounds (degrees)
 MOS_MIN = 0.2

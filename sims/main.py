@@ -2,6 +2,7 @@
 from argparse import ArgumentParser
 from argparse import ArgumentDefaultsHelpFormatter as arg_formatter
 import sys
+from resonet.sims.paths_and_const import PDB_MAP
 
 
 def args(use_joblib=False):
@@ -38,6 +39,8 @@ def args(use_joblib=False):
     parser.add_argument("--expt", type=str)
     parser.add_argument("--mask", type=str)
     parser.add_argument("--maskFileList", type=str)
+    parser.add_argument("--lowBgChance", type=float, default=0, help="probability to simulate a log background shot (default=0)")
+    parser.add_argument("--uniReso", action="store_true", help="uniformly sample resolution per shot, up to the detector maximum")
     if use_joblib:
         parser.add_argument("--njobs", default=None, type=int, help="number of jobs")
     args = parser.parse_args()
@@ -141,15 +144,16 @@ def run(args, seeds, jid, njobs):
     with h5py.File(outname, "w") as out:
         out.create_dataset("nominal_mask", data=mask)
         dset = out.create_dataset("images",
+                                  #shape=(Nshot,) + (1024,1024),
                                   shape=(Nshot,) + (512,512),
                                   dtype=np.float32)
         # get shape of maximg dset
         test = np.random.random((ydim,xdim))
         test = maxbin.maximg_downsample(test, factor)
         maximg_sh = test.shape
-        maximg_dset = out.create_dataset("full_maximg",
-                                         shape=(Nshot,) + maximg_sh,
-                                         dtype=np.float32)
+        #maximg_dset = out.create_dataset("full_maximg",
+        #                                 shape=(Nshot,) + maximg_sh,
+        #                                 dtype=np.float32)
 
         if args.saveRaw:
             raw_dset = out.create_dataset("raw_images",
@@ -163,11 +167,12 @@ def run(args, seeds, jid, njobs):
                        "beamstop_rad", "detdist", "wavelen",
                        "beam_center_fast", "beam_center_slow",
                        "cent_fast_train", "cent_slow_train",
-                       "Na", "Nb", "Nc"]
+                       "Na", "Nb", "Nc", "pdb", "mos_spread","xtal_scale"]
         geom_names = ["detdist", "wavelen", "pixsize", "xdim", "ydim"]
         lab_dset = out.create_dataset("labels", dtype=np.float32, shape=(Nshot, len(param_names)) )
         geom_dset = out.create_dataset("geom", dtype=np.float32, shape=(Nshot, len(geom_names)))
         lab_dset.attrs["names"] = param_names
+        lab_dset.attrs["pdbmap"] = list(PDB_MAP)
         geom_dset.attrs["names"] = geom_names
 
         # list of rotation matrices (length is Nshot)
@@ -184,7 +189,9 @@ def run(args, seeds, jid, njobs):
                                       randomize_dist=args.randDist,
                                       randomize_center=args.randCent,
                                       randomize_wavelen=args.randWave,
-                                      randomize_scale=args.randScale)
+                                      randomize_scale=args.randScale,
+                                      low_bg_chance=args.lowBgChance,
+                                      uniform_reso=args.uniReso)
 
             # at what pixel radius does this resolution corresond to
             radius = reso2radius(params["reso"], DET, BEAM)
@@ -243,6 +250,8 @@ def run(args, seeds, jid, njobs):
             # process the raw images according to detector model
             if xdim==2463:  # Pilatus 6M
                 quad = eval_model.raw_img_to_tens_pil(img, shot_mask, xy=(int(round(cent_x)), int(round(cent_y))))
+                #quad = eval_model.raw_img_to_tens_pil2(img, shot_mask, quad="A", ds_fact=1,sqrt=True)
+
             elif xdim==4096:  # Mar
                 quad = eval_model.raw_img_to_tens_mar(img, shot_mask)
             else:  # Eiger
@@ -263,7 +272,10 @@ def run(args, seeds, jid, njobs):
                  params["wavelength"],
                  cent_x, cent_y,
                  cent_x_train, cent_y_train,
-                 Na, Nb, Nc]
+                 Na, Nb, Nc, 
+                 PDB_MAP[params["pdb_name"]],
+                 params["mos_spread"],
+                 params["crystal_scale"]]
             geom_array = [params["detector_distance"],
                              params["wavelength"],
                              pixsize,
@@ -271,13 +283,13 @@ def run(args, seeds, jid, njobs):
 
             if args.saveRaw:
                 raw_dset[i_shot] = img
-            maximg = maxbin.maximg_downsample(img*shot_mask, factor)
+            #maximg = maxbin.maximg_downsample(img*shot_mask, factor)
             # normalize and convert
-            maximg[maximg < 0] = 0
-            maximg = np.sqrt(maximg)
-            maximg[maximg > IMAX] = IMAX
-            maximg = maximg.astype(np.float32)
-            maximg_dset[i_shot] = maximg
+            #maximg[maximg < 0] = 0
+            #maximg = np.sqrt(maximg)
+            #maximg[maximg > IMAX] = IMAX
+            #maximg = maximg.astype(np.float32)
+            #maximg_dset[i_shot] = maximg
 
             dset[i_shot] = quad
             geom_dset[i_shot] = geom_array
