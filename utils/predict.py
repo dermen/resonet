@@ -12,8 +12,8 @@ class ImagePredict:
                  multi_arch=None, ice_arch=None):
         self.pixels = None  # this is the image tensor, a (512x512) representation of the diffraction shot
         self.geom = None  # the geometry tensor, (1x5) tensor with elements (detdist, wavelen, pixsize, xdim, ydim)
-        self.reso_model = self._try_load_model("reso", reso_model, reso_arch)
-        self.multi_model = self._try_load_model("multi", multi_model, multi_arch)
+        self._try_load_model("reso", reso_model, reso_arch)
+        self._try_load_model("multi", multi_model, multi_arch)
         self.ice_model = self._try_load_model("ice", ice_model, ice_arch)
         self._geom_props = ["detdist_mm", "pixsize_mm", "wavelen_Angstrom", "xdim", "ydim"]
         self.mask = None

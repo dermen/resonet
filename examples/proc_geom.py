@@ -9,12 +9,15 @@ parser.add_argument("outfile", type=str, help="name of the output file that will
 parser.add_argument("--arch", type=str, choices=["res50", "res18", "res34", "le"], default="res50",
                     help="architecture of model (default: res50)")
 parser.add_argument("--geom", action="store_true")
+parser.add_argument("--display", action="store_true")
+parser.add_argument("--savefig", action="store_true")
 parser.add_argument("--predictor", type=str, choices=["rad", "one_over_rad", "res", "one_over_res"],
                     default="one_over_rad")
 parser.add_argument("--figdir", default=None, type=str,
                     help="A directory for PNG files to be written to. "
                          "Default: tempfigs_X where X is a string representing resolution")
 parser.add_argument("--maskFile", type=str, default=None)
+parser.add_argument("--rawRadius", action="store_true", help="if predictor is rad and its the raw image radius (as opposed to downsampled image radius)")
 args = parser.parse_args()
 
 from libtbx.mpi4py import MPI
@@ -26,6 +29,7 @@ import glob
 import re
 import os
 from resonet.utils.eval_model import load_model, raw_img_to_tens_pil, raw_img_to_tens
+from resonet.utils import eval_model
 from resonet.sims.simulator import reso2radius
 import pylab as plt
 from scipy.ndimage import binary_dilation
@@ -71,39 +75,48 @@ def res_from_name(name):
 
 target_res = res_from_name(real_data_dirname)
 
-loader = dxtbx.load(fnames[0])
-B = loader.get_beam()
-D = loader.get_detector()
-detdist = abs(D[0].get_distance())
-wavelen = B.get_wavelength()
-pixsize = D[0].get_pixel_size()[0]
 
-#imgs = []
-#for i,f in enumerate(fnames[:20]):
-#    if i% COMM.size != COMM.rank:
-#        continue
-#    if COMM.rank==0:
-#        print("Inspecting for hot pixels... %d/%d" %(i, 100), flush=True)
-#    img = dxtbx.load(f).get_raw_data().as_numpy_array().astype(np.float32)
-#    img[img > 1e4] = 0
-#    imgs.append(img)
-#imgs = COMM.reduce(imgs)
-#hotpix = None
-#if COMM.rank==0:
-#    print("median...", flush=True)
-#    img_med =np.median(imgs, 0)
-#    hotpix = img_med > 1e2
-#hotpix = COMM.bcast(hotpix)
+loader = None
+for i in range(len(fnames)):
+    try:
+        loader = dxtbx.load(fnames[i])
+        B = loader.get_beam()
+        D = loader.get_detector()
+        detdist = abs(D[0].get_distance())
+        wavelen = B.get_wavelength()
+        pixsize = D[0].get_pixel_size()[0]
+
+        #imgs = []
+        #for i,f in enumerate(fnames[:20]):
+        #    if i% COMM.size != COMM.rank:
+        #        continue
+        #    if COMM.rank==0:
+        #        print("Inspecting for hot pixels... %d/%d" %(i, 100), flush=True)
+        #    img = dxtbx.load(f).get_raw_data().as_numpy_array().astype(np.float32)
+        #    img[img > 1e4] = 0
+        #    imgs.append(img)
+        #imgs = COMM.reduce(imgs)
+        #hotpix = None
+        #if COMM.rank==0:
+        #    print("median...", flush=True)
+        #    img_med =np.median(imgs, 0)
+        #    hotpix = img_med > 1e2
+        #hotpix = COMM.bcast(hotpix)
 
 
-xdim, ydim = D[0].get_image_size()
+        xdim, ydim = D[0].get_image_size()
 
-is_pil = xdim==2463
+        is_pil = xdim==2463
+        break
+    except:
+        pass
+
+assert loader is not None
 
 if args.maskFile is None:
     mask = loader.get_raw_data().as_numpy_array() >= 0
-    mask = ~binary_dilation(~mask, iterations=2)
-    beamstop_rad = 10
+    mask = ~binary_dilation(~mask, iterations=1)
+    beamstop_rad = 50
     Y,X = np.indices((ydim, xdim))
     R = np.sqrt((X-xdim/2.)**2 + (Y-ydim/2.)**2)
     out_of_beamstop = R > beamstop_rad
@@ -117,82 +130,120 @@ Nf = len(fnames)
 if COMM.rank==0:
     print("Found %d fnames" % Nf)
 factor = 2 if is_pil else 4
+#is_1024 = True
+#if is_1024:
+#    factor = 1
 target_rad = reso2radius(target_res, DET=D, BEAM=B) / factor
 if COMM.rank==0:
     print("Target res: %fA" % target_res)
 
-figdir = args.figdir
-if figdir is None:
-    figdir = args.outfile + ".tempfigs"
-if COMM.rank==0 and not os.path.exists(figdir):
-    os.makedirs(figdir)
-COMM.barrier()
+if args.savefig:
+    figdir = args.figdir
+    if figdir is None:
+        figdir = args.outfile + ".tempfigs"
+    if COMM.rank==0 and not os.path.exists(figdir):
+        os.makedirs(figdir)
+    COMM.barrier()
 
 geom = torch.tensor([[detdist, pixsize, wavelen, xdim, ydim]])
 rank_fnames = []
 rank_fignames = []
 all_res = []
 rads = []
+IM = None
 for i_f, f in enumerate(fnames):
     if i_f % COMM.size != COMM.rank: continue
-    loader = dxtbx.load(f)
+    try:
+        loader = dxtbx.load(f)
+    except:
+        continue
     img = loader.get_raw_data().as_numpy_array()
+
     if is_pil:
-        tens = raw_img_to_tens_pil(img, mask)
+        tens_getter = eval_model.raw_img_to_tens_pil2
+
     else:
-        tens = raw_img_to_tens(img, mask)
+        tens_getter = eval_model.raw_img_to_tens
 
-    inputs = (tens,)
-    if args.geom:
-        geom = torch.tensor([[detdist, pixsize, wavelen, xdim, ydim]])
-        inputs = (tens, geom)
-    pred = model(*inputs).item()
+    tensors = []
+    for quad in ("A","B","C","D"):
+        tens = tens_getter(img, mask, quad=quad)
+        tensors.append(tens)
 
-    if args.predictor in ["one_over_res", "res"]:
-        if args.predictor =="res":
-            res = pred
-        else:
-            res = 1/pred
-        radius = reso2radius(res, D, B) / factor
-    else: # args.predictor in ["rad", "one_over_rad"]:
-        if args.predictor == "rad":
-            radius = pred
-        else:
-            radius = 1/pred
-        theta = 0.5*np.arctan(radius*factor*pixsize/detdist)
-        res = 0.5*wavelen/np.sin(theta)
+    res_rads = []
+    for i_tens, tens in enumerate(tensors):
+        inputs = (tens,)
+        if args.geom:
+            geom = torch.tensor([[detdist, pixsize, wavelen, xdim, ydim]])
+            inputs = (tens, geom)
+        pred = model(*inputs).item()
 
-    print(radius, target_rad)
+        if args.predictor in ["one_over_res", "res"]:
+            if args.predictor =="res":
+                res = pred
+            else:
+                res = 1/pred
+            radius = reso2radius(res, D, B) / factor
+        else: # args.predictor in ["rad", "one_over_rad"]:
+            if args.predictor == "rad":
+                radius = pred
+            else:
+                radius = 1/pred
+            if args.rawRadius:
+                theta = 0.5*np.arctan(radius*pixsize/detdist)
+            else:
+                theta = 0.5*np.arctan(radius*factor*pixsize/detdist)
+            res = 0.5*wavelen/np.sin(theta)
+        res_rads.append( (res, radius, i_tens ))
+    res, radius, i_tens = sorted(res_rads)[0]
+
+    #print(radius, target_rad, i_tens)
+    print(res, target_res, i_tens) #radius, target_rad, i_tens)
     all_res.append(res)
     rads.append(radius)
     rank_fnames.append(f)
-    plt.cla()
-    plt.imshow(tens.numpy()[0, 0, :512, :512], vmax=10)
-    plt.gca().add_patch(plt.Circle(xy=(0,0), radius=radius, ec='r', ls='--', fc='none' ))
-    plt.gca().add_patch(plt.Circle(xy=(0,0), radius=target_rad, ec='w', ls='--', fc='none' ))
-    plt.title("%.2fA: %s" % (target_res, os.path.basename(f)))
-    figname = os.path.join( figdir, "%.2fA_%05d.png" % (target_res, i_f))
-    plt.savefig(figname, dpi=150)
-    rank_fignames.append(figname)
+    if args.display:
+        new_data = tensors[i_tens].numpy()[0,0,:512,:512]
+        C2 = plt.Circle(xy=(0,0), radius=radius, ec='r', ls='--', fc='none' )
+        if IM is None:
+            IM = plt.imshow(new_data, vmax=10)
+            Cref = plt.Circle(xy=(0,0), radius=target_rad, ec='w', ls='--', fc='none' )
+            plt.gca().add_patch(Cref)
+            plt.gca().add_patch(C2)
+        else:
+            IM.set_data(new_data)
+            plt.gca().patches.pop()
+            plt.gca().add_patch(C2)
+        #plt.cla()
+        #plt.imshow(tens.numpy()[0, 0, :512, :512], vmax=10)
 
-    if COMM.rank==0:
-        plt.draw()
-        plt.pause(0.2)
+        plt.title("%.2fA: %s" % (target_res, os.path.basename(f)))
+        if args.savefig:
+            figname = os.path.join( figdir, "%.2fA_%05d.png" % (target_res, i_f))
+            plt.savefig(figname, dpi=150)
+            rank_fignames.append(figname)
+
+        if COMM.rank==0:
+            plt.draw()
+            plt.pause(0.2)
 
 rads = COMM.reduce(rads)
 res = COMM.reduce(all_res)
 fnames = COMM.reduce(rank_fnames)
-rank_fignames = COMM.reduce(rank_fignames)
+if args.savefig:
+    rank_fignames = COMM.reduce(rank_fignames)
+
 
 if COMM.rank==0:
     res = np.array(res)
     order = np.argsort(rads)[::-1]
-    ordered_figs = [rank_fignames[i] for i in order]
-    for i, f in enumerate(ordered_figs):
-        new_f = os.path.join(figdir, "sorted_%05d.png" % i)
-        if os.path.exists(new_f):
-            os.remove(new_f)
-        os.symlink(os.path.abspath(f), new_f)
+    if args.savefig:
+        ordered_figs = [rank_fignames[i] for i in order]
+        for i, f in enumerate(ordered_figs):
+            new_f = os.path.join(figdir, "sorted_%05d.png" % i)
+            if os.path.exists(new_f):
+                os.remove(new_f)
+            os.symlink(os.path.abspath(f), new_f)
 
     perc10 = np.percentile(res,10)
     max_top10 = res[res <= perc10].mean()
@@ -200,7 +251,7 @@ if COMM.rank==0:
         % (np.mean(res), np.std(res), np.min(res), max_top10, detdist)
     print(s)
     np.savez(args.outfile, rads=rads, fnames=fnames, pixsize=pixsize, detdist=detdist, wavelen=wavelen, res=res,
-             result_string=s, fignames=rank_fignames, factor=factor, target_rad=target_rad, target_res=target_res)
+             result_string=s, factor=factor, fignames=rank_fignames, target_rad=target_rad, target_res=target_res)
     o = args.outfile
     if not o.endswith(".npz"):
         o = o + ".npz"

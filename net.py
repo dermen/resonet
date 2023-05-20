@@ -11,6 +11,7 @@ def get_parser():
     parser.add_argument("--noDisplay", action="store_true", help="dont shot plots")
     parser.add_argument("--bs", type=int,default=16, help="batch size")
     parser.add_argument("--loss", type=str, choices=["L1", "L2", "BCE", "BCE2"], default="L1", help="loss function selector")
+    parser.add_argument("--gpuid", type=int, help="device Id", default=0)
     parser.add_argument("--saveFreq", type=int, default=10, help="how often to write the model to disk")
     parser.add_argument("--arch", type=str, choices=["le", "res18", "res50", "res34", "res101", "res152"],
                         default="res50", help="architecture selector")
@@ -476,6 +477,7 @@ if __name__ == "__main__":
                 dropout=args.dropout,
                 lr=args.lr, bs=args.bs, max_ep=args.ep,
                 arch=args.arch, loss=args.loss,
+                dev="cuda:%d" % args.gpuid,
                 logfile=args.logfile, loglevel=args.loglevel,
                 label_sel=args.labelSel,
                 half_precision=args.half,

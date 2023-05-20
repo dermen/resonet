@@ -2,6 +2,7 @@
 import glob
 import numpy as np
 from scipy.interpolate import interp1d
+import time
 
 import dxtbx
 from dials.array_family import flex

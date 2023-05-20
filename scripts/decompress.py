@@ -1,5 +1,7 @@
 import h5py
 from joblib import Parallel, delayed
+#from mpi4py import MPI
+#COMM = MPI.COMM_WORLD
 import numpy as np
 import sys
 import glob
@@ -15,6 +17,7 @@ Will create new files in folder baxter.4 using 10 processes
 DIRNAME = sys.argv[1]
 NJOBS = int(sys.argv[2])
 
+#NJOBS=COMM.size
 
 def main(jid):
     fnames = glob.glob(DIRNAME + "/compressed*.h5")
@@ -42,6 +45,6 @@ def main(jid):
             geom_dset.attrs['names'] = h['geom'].attrs['names']
             lab_dset.attrs['names'] = h['labels'].attrs['names']
 
-
+#main(COMM.rank)
 Parallel(n_jobs=NJOBS)(delayed(main)(jid) for jid in range(NJOBS))
 

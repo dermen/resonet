@@ -46,12 +46,40 @@ def load_model(state_name, arch="res50"):
 
 #MASK = np.load("/data/blstaff/xtal/mwilson_data/mask_mwils.npy")
 
-def raw_img_to_tens(raw_img, MASK, howbin='max'):
-    img = maxbin.get_quadA(maxbin.img2int(raw_img*MASK, howbin=howbin))
-    img = img.astype(np.float32)[:512,:512]
-    if HAS_TORCH:
-        img = torch.tensor(img).view((1,1,512,512)).to("cpu")
-    return img
+def raw_img_to_tens(raw_img, MASK, howbin='max', quad="A", cent=None, numpy_only=False,
+        adu_per_photon=1, ds_fact=4, IMAX=None):
+    #img = maxbin.get_quadA(maxbin.img2int(raw_img*MASK, howbin=howbin))
+
+    img = maxbin.maximg_downsample((raw_img/adu_per_photon)*MASK, factor=ds_fact)
+    img[img < 0] = 0
+    if IMAX is None:
+        IMAX = 255**2
+    img[img >= IMAX] = IMAX
+    img = np.sqrt(img)
+    img = img.astype(np.uint8).astype(np.float32)
+
+    if cent is None:
+        y_cent, x_cent = [ int(x/2.) for x in raw_img.shape]
+        cent = x_cent, y_cent
+    cent_ds = int(round(cent[0]/ds_fact)), int(round(cent[1]/ds_fact))
+    x,y = cent_ds
+    if quad=="A":
+        subimg=img[y-512:y, x-512:x]
+        quad = np.rot90(subimg, k=2)
+        # optionally pad quad image to be 512 x 512
+    elif quad=="B":
+        subimg = img[y-512:y, x:x+512]
+        quad = np.rot90(subimg, k=3)
+    elif quad=="C":
+        subimg = img[y:512+y, x-512:x]
+        quad = np.rot90(subimg, k=1)
+    else: # quad=="D":
+        subimg = img[y:512+y, x:512+x]
+        quad = subimg
+
+    if HAS_TORCH and not numpy_only:
+        quad = torch.tensor(quad.copy()).view((1,1,512,512)).to("cpu")
+    return quad
 
 
 def raw_img_to_tens_pil(raw_img, MASK, xy=None, numpy_only=False, howbin='max'):
@@ -60,7 +88,7 @@ def raw_img_to_tens_pil(raw_img, MASK, xy=None, numpy_only=False, howbin='max'):
     img = maxbin.img2int_pil(raw_img[ysl, xsl]*MASK[ysl, xsl], howbin=howbin)
     img = maxbin.get_quadA_pil(img).astype(np.float32)
     if HAS_TORCH and not numpy_only:
-        img = torch.tensor(img).view((1,1,512,512)).to("cpu")
+        img = torch.tensor(img.copy()).view((1,1,512,512)).to("cpu")
     return img
 
 

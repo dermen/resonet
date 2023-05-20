@@ -5,8 +5,14 @@ model=$2
 nproc=$3
 arch=$4
 
+tmps=resonettemp
+find /mnt/tmpdata/data/ALL_DATA/ -maxdepth 1 -type d  -name "[0-9]*[0-9]A" > $tmps
+
+find /mnt/tmpdata/data/ALL_DATA/ -maxdepth 1 -type l  -name "[0-9]*[0-9]A" >> $tmps
+
 count=1
-for dirname in `find ${moredata} -maxdepth 1 -type d,l -name "[0-9]*[0-9]A"`
+#for dirname in `find ${moredata} -maxdepth 1 -type d,l -name "[0-9]*[0-9]A"`
+for dirname in `cat $tmps`
 do
     # resolution target
     res=$(basename $dirname)
@@ -15,8 +21,8 @@ do
     outname=results.${count}.${res}
 
     # evaulate the model
-    libtbx.python $MODZ/resonet/examples/proc_geom_joblib.py  $dirname $model ${outname} --predictor one_over_res \
-    --geom --njobs $nproc --sanitize --arch $arch
+    mpirun -n $nproc libtbx.python $MODZ/resonet/examples/proc_geom.py  $dirname $model ${outname} --predictor one_over_res \
+    --geom --arch $arch
 
     count=$[$count +1]
 done
