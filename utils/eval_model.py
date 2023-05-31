@@ -148,7 +148,7 @@ def raw_img_to_tens_pil2(raw_img, mask, numpy_only=False, cent=None, IMAX=None, 
     #    new_img = exposure.equalize_adapthist(img*mask, kernel_size=16)
 
     img = maxbin.maximg_downsample((raw_img/adu_per_photon)*mask, factor=ds_fact)
-    img *= mask
+    #img *= mask
     img[img < 0] = 0
     if IMAX is None:
         IMAX = 255**2
