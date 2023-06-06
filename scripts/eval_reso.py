@@ -197,7 +197,7 @@ def main():
     rads = []
     IM = None
 
-    maxpool = None #torch.nn.MaxPool2d(factor,factor)
+    maxpool = torch.nn.MaxPool2d(factor,factor)
     ttotal = time.time()
     fnames_to_proc = fnames
     if args.maxProc is not None:
@@ -214,7 +214,7 @@ def main():
         img = img.astype(np.float32)
         tread = time.time()-t
         #if is_pil:
-        tens_getter = eval_model.raw_img_to_tens_pil2#3
+        tens_getter = eval_model.raw_img_to_tens_pil2
         kwargs ={}
         kwargs["leave_on_gpu"] = args.leaveOnGpu
         kwargs["dev"] = dev
@@ -351,7 +351,6 @@ def main():
         s = real_data_dirname + "Res: %.4f +- %.4f (Angstrom). highest= %.4fA . MeanHighest10perc=%.4fA (detdist=%.2f mm)" \
             % (np.mean(all_hres), np.std(all_hres), np.min(all_hres), max_top10, detdist)
         print(s)
-        #from IPython import embed;embed()
         np.savez(args.outfile, rads=rads, fnames=fnames, pixsize=pixsize, detdist=detdist, wavelen=wavelen, res=all_hres, all_resos=np.array(all_resos),
                  result_string=s, factor=factor, fignames=rank_fignames, target_rad=target_rad, target_res=target_res, all_t_per_rank=all_t_per_rank)
         o = args.outfile

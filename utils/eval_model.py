@@ -200,10 +200,6 @@ def raw_img_to_tens_pil3(raw_img, mask, numpy_only=False, cent=None, IMAX=None, 
 
     if cent is None:
         cent = 1231.5, 1263.5
-    cent_ds = int(round(cent[0]/ds_fact)), int(round(cent[1]/ds_fact))
-    #if lcn:
-    #   from skimage import exposure
-    #    new_img = exposure.equalize_adapthist(img*mask, kernel_size=16)
 
     leave_on_gpu = True
     n = 512 * ds_fact
@@ -225,29 +221,32 @@ def raw_img_to_tens_pil3(raw_img, mask, numpy_only=False, cent=None, IMAX=None, 
         submask = mask[y:n+y, x:n+x]
         k=0
 
-    quadmask = submask
-    quad = subimg
+    quad = maxbin.maximg_downsample((subimg/adu_per_photon)*submask, factor=ds_fact, maxpool=maxpool, dev=dev, leave_on_gpu=leave_on_gpu, convert_to_f32=convert_to_f32)
+    ROT90 = np.rot90
+    if not isinstance(quad, np.ndarray):
+        ROT90 = torch.rot90
     if k > 0:
-        quadmask = np.rot90(submask, k=k)
-        quad = np.rot90(subimg, k=k)
-    #from IPython import embed;embed()
+        quad = ROT90(quad, k=k)
 
-    quad = maxbin.maximg_downsample((quad/adu_per_photon)*quadmask, factor=ds_fact, maxpool=maxpool, dev=dev, leave_on_gpu=leave_on_gpu, convert_to_f32=convert_to_f32)
     quad[quad < 0] = 0
     if IMAX is None:
         IMAX = 255**2
     quad[quad >= IMAX] = IMAX
+
+    SQRT = torch.sqrt
+    FLOOR = torch.floor
+    if isinstance(quad, np.ndarray):
+        SQRT = np.sqrt
+        FLOOR = np.floor
+
     if sqrt:
-        if leave_on_gpu:
-            quad = torch.sqrt(quad)
-        else:
-            quad = np.sqrt(quad)
-            quad = quad.astype(np.uint8)
-    else:
-        if leave_on_gpu:
-            quad = torch.floor(quad)
-        else:
-            quad = quad.astype(np.int32)
+        quad = SQRT(quad)
+    quad = FLOOR(quad)
+    #else:
+    #    if leave_on_gpu:
+    #        quad = FLOOR(quad)
+    #    else:
+    #        quad = quad.astype(np.int32)
     if not leave_on_gpu:
         quad = quad.astype(np.float32)
 

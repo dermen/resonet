@@ -117,7 +117,7 @@ if args.maskFile is None:
     mask = loader.get_raw_data().as_numpy_array() >= 0
     mask = ~binary_dilation(~mask, iterations=1)
     
-    beamstop_rad = 50
+    beamstop_rad = 100
     Y,X = np.indices((ydim, xdim))
     R = np.sqrt((X-xdim/2.)**2 + (Y-ydim/2.)**2)
     out_of_beamstop = R > beamstop_rad
@@ -196,6 +196,7 @@ for i_f, f in enumerate(fnames):
                 theta = 0.5*np.arctan(radius*factor*pixsize/detdist)
             res = 0.5*wavelen/np.sin(theta)
         res_rads.append( (res, radius, i_tens ))
+    from IPython import embed;embed()
     res, radius, i_tens = sorted(res_rads)[0]
 
     #print(radius, target_rad, i_tens)
