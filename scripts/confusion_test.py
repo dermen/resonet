@@ -15,6 +15,7 @@ parser.add_argument("model", type=str, help="direct path to the model file shoul
 parser.add_argument("--arch", type=str, choices=["le", "res18", "res50", "res34", "res101", "res152"],
                         default="res34", help="architecture selector")
 parser.add_argument("outdir", type=str, help="store output files here (will create if necessary)")
+parser.add_argument("--gpu",action='store_true')
 args = parser.parse_args()
 
 master_file = args.input
@@ -30,8 +31,9 @@ label_sel = ['is_multi']
 half_precision = False
 h5imgs = 'images'
 h5label = 'labels'
-dev = 'cpu' # optinola cpu vs gpu note if gpu maybe cuda: 0
-# maybe should add if statment
+dev = 'cpu' 
+if args.gpu:
+    dev = 'cuda:0' # optional if user has access to gpu, recommended
 use_geom = False
 transform = False
 
@@ -43,10 +45,12 @@ train_imgs = H5SimDataDset(master_file, start=train_start, stop=train_stop ,tran
 
 # load the model, first arg is the model .nn file, second arg is arch (see the train.log)
 model = load_model(model,arch) 
+model = model.to(dev)
 
-
-all_labels = np.array([])
-all_pred = np.array([])
+# declare the size 
+n = train_stop - train_start
+all_labels = np.zeros(n)
+all_pred = np.zeros(n)
 
 # use loop to grab the labels ths is our label truth
 for i in range(len(train_imgs)):
@@ -57,9 +61,11 @@ for i in range(len(train_imgs)):
     raw_pred = torch.sigmoid(model(image))
     is_multi = int(torch.round(raw_pred).item())
 # Grabs all labels from the orignal images, and the predictions 
-    all_labels  = np.append(all_labels,label)
-    all_pred = np.append(all_pred,is_multi)
-    
+   
+   # give theee index 
+    all_labels[i] = label
+    all_pred[i] = is_multi
+
 # Create the confusion matrix
 confusion_matrix = metrics.confusion_matrix(all_labels, all_pred)
 print(confusion_matrix)
@@ -81,13 +87,5 @@ for i in range(confusion_matrix.shape[0]):
         plt.subplots_adjust(left=.2,right=.99, top=.83, bottom=.07)
         plt.savefig(output,dpi=250)
         plt.show()
-        
-    
-    
-
-# Questions: 
-# Might have to use Vardan's master file, old master file.
-# if nothering is working use 
-
 
 
