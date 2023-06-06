@@ -2,6 +2,8 @@
 from PIL import Image
 import numpy as np
 import dxtbx
+import torch
+from torch.nn.functional import pad as PAD
 
 SHAPE_MAXFILT = 1090, 1037
 SHAPE_CROP = 1028, 1030
@@ -83,7 +85,7 @@ def get_slice_pil(xy=None):
     return ysl, xsl
 
 
-def maximg_downsample(img, factor=2):
+def maximg_downsample(img, factor=2, maxpool=None, dev="cpu", leave_on_gpu=False, convert_to_f32=False):
     ydim, xdim = img.shape
     while xdim % factor:
         xdim += 1
@@ -91,8 +93,31 @@ def maximg_downsample(img, factor=2):
         ydim += 1
     ypad = ydim - img.shape[0]
     xpad = xdim - img.shape[1]
-    padimg = np.pad(img, ((0, ypad), (0, xpad)), mode="edge")
-    maximg = bin_ndarray(padimg, (int(ydim / factor), int(xdim / factor)), 'max')
+    #padimg = np.pad(img, ((0, ypad), (0, xpad)), mode="edge")
+    #padimg = np.zeros((ydim, xdim))
+    #from IPython import embed;embed()
+    #padimg[:ydim-ypad, :xdim-xpad] = img
+    #new_img[-ypad:,:-xpad] = img[-ypad]
+    #new_img[:-ypad,-xpad] = img[:,-xpad]
+    #from skimage.measure import block_reduce
+    #maximg = block_reduce(padimg, factor, func=np.max)
+    if maxpool is not None:
+        if convert_to_f32:
+            img = img.astype(np.float32)
+        padt = torch.tensor(img).to(dev) 
+        padt = PAD(PAD(padt,(0,xpad),value=0).T, (0,ypad), value=0).T
+        maximg = maxpool(padt[None])[0]
+        if not leave_on_gpu:
+            try:
+                maximg = maximg.numpy()
+            except TypeError:
+                maximg = maximg.cpu().numpy()
+    else:
+        yzeros = np.zeros((ypad, img.shape[1]))
+        padimg = np.concatenate((img, yzeros), axis=0)
+        xzeros = np.zeros((ydim, xpad))
+        padimg = np.concatenate((padimg , xzeros), axis=1)
+        maximg = bin_ndarray(padimg, (int(ydim / factor), int(xdim / factor)), 'max')
     return maximg
 
 

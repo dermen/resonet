@@ -116,6 +116,7 @@ assert loader is not None
 if args.maskFile is None:
     mask = loader.get_raw_data().as_numpy_array() >= 0
     mask = ~binary_dilation(~mask, iterations=1)
+    
     beamstop_rad = 50
     Y,X = np.indices((ydim, xdim))
     R = np.sqrt((X-xdim/2.)**2 + (Y-ydim/2.)**2)
@@ -232,7 +233,6 @@ res = COMM.reduce(all_res)
 fnames = COMM.reduce(rank_fnames)
 if args.savefig:
     rank_fignames = COMM.reduce(rank_fignames)
-
 
 if COMM.rank==0:
     res = np.array(res)

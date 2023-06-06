@@ -137,7 +137,7 @@ def raw_img_to_tens_jung(raw_img, mask, numpy_only=False, cent=None, IMAX=None, 
 
 
 
-def raw_img_to_tens_pil2(raw_img, mask, numpy_only=False, cent=None, IMAX=None, adu_per_photon=1, quad="B", ds_fact=2, sqrt=True):
+def raw_img_to_tens_pil2(raw_img, mask, numpy_only=False, cent=None, IMAX=None, adu_per_photon=1, quad="B", ds_fact=2, sqrt=True, maxpool=None, dev="cpu", leave_on_gpu=False, convert_to_f32 =False):
     assert quad in ["A","B","C","D"]
 
     if cent is None:
@@ -147,37 +147,115 @@ def raw_img_to_tens_pil2(raw_img, mask, numpy_only=False, cent=None, IMAX=None, 
     #   from skimage import exposure
     #    new_img = exposure.equalize_adapthist(img*mask, kernel_size=16)
 
-    img = maxbin.maximg_downsample((raw_img/adu_per_photon)*mask, factor=ds_fact)
-    #img *= mask
+    img = maxbin.maximg_downsample((raw_img/adu_per_photon)*mask, factor=ds_fact, maxpool=maxpool, dev=dev, leave_on_gpu=leave_on_gpu, convert_to_f32=convert_to_f32)
     img[img < 0] = 0
     if IMAX is None:
         IMAX = 255**2
     img[img >= IMAX] = IMAX
     if sqrt:
-        img = np.sqrt(img)
-        img = img.astype(np.uint8)
+        if leave_on_gpu:
+            img = torch.sqrt(img)
+        else:
+            img = np.sqrt(img)
+            img = img.astype(np.uint8)
     else:
-        img = img.astype(np.int32)
-    img = img.astype(np.float32)
+        if leave_on_gpu:
+            img = torch.floor(img)
+        else:
+            img = img.astype(np.int32)
+    if not leave_on_gpu:
+        img = img.astype(np.float32)
 
     x,y = cent_ds
-    n = 1024//ds_fact
+    n = 512 #1024//ds_fact
+    rot90 = np.rot90
+    if leave_on_gpu:
+        rot90 = torch.rot90
     if quad=="A":
         subimg=img[y-n:y, x-n:x]
-        quad = np.rot90(subimg, k=2)
+        quad = rot90(subimg, k=2)
         # optionally pad quad image to be 512 x 512
     elif quad=="B":
         subimg = img[y-n:y, x:x+n]
-        quad = np.rot90(subimg, k=3)
+        quad = rot90(subimg, k=3)
     elif quad=="C":
         subimg = img[y:n+y, x-n:x]
-        quad = np.rot90(subimg, k=1)
+        quad = rot90(subimg, k=1)
     else: # quad=="D":
         subimg = img[y:n+y, x:n+x]
         quad = subimg
 
     if HAS_TORCH and not numpy_only:
-        quad = torch.tensor(quad.copy()).view((1,1,n,n)).to("cpu")
+        if leave_on_gpu:
+            quad= quad[None,None]
+        else:
+            quad = torch.tensor(quad.copy()).view((1,1,n,n)).to("cpu")
+
+    return quad
+
+
+
+def raw_img_to_tens_pil3(raw_img, mask, numpy_only=False, cent=None, IMAX=None, adu_per_photon=1, quad="B", ds_fact=2, sqrt=True, maxpool=None, dev="cpu", leave_on_gpu=False, convert_to_f32 =False):
+    assert quad in ["A","B","C","D"]
+
+    if cent is None:
+        cent = 1231.5, 1263.5
+    cent_ds = int(round(cent[0]/ds_fact)), int(round(cent[1]/ds_fact))
+    #if lcn:
+    #   from skimage import exposure
+    #    new_img = exposure.equalize_adapthist(img*mask, kernel_size=16)
+
+    leave_on_gpu = True
+    n = 512 * ds_fact
+    x,y = int (round(cent[0])), int(round(cent[1]))
+    if quad=="A":
+        subimg=raw_img[y-n:y, x-n:x]
+        submask=mask[y-n:y, x-n:x]
+        k = 2
+    elif quad=="B":
+        subimg = raw_img[y-n:y, x:x+n]
+        submask = mask[y-n:y, x:x+n]
+        k=3
+    elif quad=="C":
+        subimg = raw_img[y:n+y, x-n:x]
+        submask = mask[y:n+y, x-n:x]
+        k=1
+    else:
+        subimg = raw_img[y:n+y, x:n+x]
+        submask = mask[y:n+y, x:n+x]
+        k=0
+
+    quadmask = submask
+    quad = subimg
+    if k > 0:
+        quadmask = np.rot90(submask, k=k)
+        quad = np.rot90(subimg, k=k)
+    #from IPython import embed;embed()
+
+    quad = maxbin.maximg_downsample((quad/adu_per_photon)*quadmask, factor=ds_fact, maxpool=maxpool, dev=dev, leave_on_gpu=leave_on_gpu, convert_to_f32=convert_to_f32)
+    quad[quad < 0] = 0
+    if IMAX is None:
+        IMAX = 255**2
+    quad[quad >= IMAX] = IMAX
+    if sqrt:
+        if leave_on_gpu:
+            quad = torch.sqrt(quad)
+        else:
+            quad = np.sqrt(quad)
+            quad = quad.astype(np.uint8)
+    else:
+        if leave_on_gpu:
+            quad = torch.floor(quad)
+        else:
+            quad = quad.astype(np.int32)
+    if not leave_on_gpu:
+        quad = quad.astype(np.float32)
+
+    if HAS_TORCH and not numpy_only:
+        if leave_on_gpu:
+            quad= quad[None,None]
+        else:
+            quad = torch.tensor(quad.copy()).view((1,1,n,n)).to("cpu")
 
     return quad
 
