@@ -1,5 +1,7 @@
 
 import torch
+from scipy.ndimage import binary_dilation
+
 from resonet.utils.eval_model import load_model, raw_img_to_tens_pil, raw_img_to_tens
 
 """
@@ -12,9 +14,9 @@ class ImagePredict:
                  multi_arch=None, ice_arch=None):
         self.pixels = None  # this is the image tensor, a (512x512) representation of the diffraction shot
         self.geom = None  # the geometry tensor, (1x5) tensor with elements (detdist, wavelen, pixsize, xdim, ydim)
-        self.reso_model = self._try_load_model("reso", reso_model, reso_arch)
-        self.multi_model = self._try_load_model("multi", multi_model, multi_arch)
-        self.ice_model = self._try_load_model("ice", ice_model, ice_arch)
+        self._try_load_model("reso", reso_model, reso_arch)
+        self._try_load_model("multi", multi_model, multi_arch)
+        self._try_load_model("ice", ice_model, ice_arch)
         self._geom_props = ["detdist_mm", "pixsize_mm", "wavelen_Angstrom", "xdim", "ydim"]
         self.mask = None
 
@@ -32,7 +34,6 @@ class ImagePredict:
             if model_arch is None:
                 raise ValueError("Arch string required for loading model %s!" % model_name)
             model = load_model(model_path, model_arch)
-
         setattr(self, "%s_model" % model_name, model)
 
     @property
@@ -93,19 +94,28 @@ class ImagePredict:
 
     def _set_geom_tensor(self):
         for prop in self._geom_props:
-            if getattr(prop) is None:
+            if getattr(self, prop) is None:
                 raise ValueError("Must set %s before initializing geom tensor" % prop)
 
         self.geom = torch.tensor([[self.detdist_mm, self.pixsize_mm, self.wavelen_Angstrom, self.xdim, self.ydim]])
 
     def _set_pixel_tensor(self, raw_img):
         """pass in a raw image (2D array) and convert it to an torch tensor for prediction"""
+        # check for mask and set a default if none found
+        self._set_default_mask(raw_img)
+
         is_pil = self.xdim == 2463
         if is_pil:
             tens = raw_img_to_tens_pil(raw_img, self.mask)
         else:
             tens = raw_img_to_tens(raw_img, self.mask)
         self._pixels = tens
+
+    def _set_default_mask(self, raw_img):
+        if self.mask is None:
+            mask = raw_img >= 0
+            mask = ~binary_dilation(~mask, iterations=1)
+            self.mask = mask
 
     def detect_resolution(self):
         """
