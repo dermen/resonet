@@ -107,8 +107,8 @@ def main():
         if re.search("_[0-9]_[0-9]{5}" , f) is None:
             continue
         temp.append(f)
-        if COMM.rank==0:
-            print("done verifying image %d / %d" % (i+1, len(fnames)))
+        #if COMM.rank==0:
+        #    print("done verifying image %d / %d" % (i+1, len(fnames)))
     fnames = COMM.bcast(COMM.reduce(temp))
 
 
@@ -214,7 +214,7 @@ def main():
         img = img.astype(np.float32)
         tread = time.time()-t
         #if is_pil:
-        tens_getter = eval_model.raw_img_to_tens_pil2
+        tens_getter = eval_model.raw_img_to_tens_pil3
         kwargs ={}
         kwargs["leave_on_gpu"] = args.leaveOnGpu
         kwargs["dev"] = dev
@@ -225,14 +225,13 @@ def main():
         #    tens_getter = eval_model.raw_img_to_tens
         #    kwargs = {}
         
-        geom = torch.tensor([[detdist, pixsize, wavelen, xdim, ydim]])
-        geom = geom.to(dev)
 
         if args.loop:
             resos = []
             tds = 0
             teval = 0
             for quad in args.quads:
+                geom = torch.tensor([[detdist, pixsize, wavelen, xdim, ydim]], device=dev)
                 tds_temp = time.time()
                 tens = tens_getter(img, mask, quad=quad, **kwargs)
                 if dev != "cpu" and tens.device.type != "cuda":
@@ -248,8 +247,8 @@ def main():
                 reso = 1./pred.item()
                 resos.append(reso)
                 teval += time.time()-teval_temp
-            tds = tds / len(args.quads)
-            teval = teval / len(args.quads)
+            tds = tds #/ len(args.quads)
+            teval = teval #/ len(args.quads)
 
         else:
             tensors = []
@@ -257,6 +256,12 @@ def main():
             for quad in args.quads:
 
                 tens = tens_getter(img, mask, quad=quad, **kwargs)
+                if isinstance(tens, np.ndarray):
+                    if not tens.dtype==np.float32:
+                        tens = tens.astype(np.float32)
+                    tens = torch.tensor(tens, device=dev)
+                if isinstance(tens, np.ndarray):
+                    tens = torch.tensor(tens, device=dev)
                 if dev != "cpu" and tens.device.type != "cuda":
                     tens = tens.to(dev)
                 tensors.append(tens)
@@ -266,6 +271,7 @@ def main():
 
             teval = time.time()
             tensors = torch.concatenate(tensors)
+            geom = torch.tensor([[detdist, pixsize, wavelen, xdim, ydim]], device=dev)
             pred = model(tensors, geom)
             if args.gpus:
                 torch.cuda.synchronize(device=dev)
@@ -283,7 +289,7 @@ def main():
         #teval = time.time()-teval
 
         #print(radius, target_rad, i_tens)
-        print("%.3f" %hres, target_res,  "rd=%.4f, ds=%.4f, ev=%.4f" % (tread, tds, teval)) #radius, target_rad, i_tens)
+        print("%.3f" %hres, target_res,  "rd=%.4f, ds=%.4f, ev=%.4f" % (tread, tds, teval), "resos=%s" % " ".join(["%.2f" %x for x in resos]) )
         all_t.append([tread, tds, teval])
         all_hres.append(hres)
         rads.append(radius)

@@ -2,8 +2,7 @@
 
 moredata=$1
 model=$2
-nproc=$3
-arch=$4
+arch=$3
 
 tmps=resonettemp
 find /mnt/tmpdata/data/ALL_DATA/ -maxdepth 1 -type d  -name "[0-9]*[0-9]A" > $tmps
@@ -21,8 +20,8 @@ do
     outname=results.${count}.${res}
 
     # evaulate the model
-    mpirun -n $nproc libtbx.python $MODZ/resonet/examples/proc_geom.py  $dirname $model ${outname} --predictor one_over_res \
-    --geom --arch $arch
+    mpirun -n 8 libtbx.python $MODZ/resonet/scripts/eval_reso.py  $dirname $model ${outname} \
+    --arch $arch  --quads A B C D --gpus --leaveOnGpu
 
     count=$[$count +1]
 done

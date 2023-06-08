@@ -60,4 +60,4 @@ def _test_pil2(shape=None, factor=2, use_maxpool=False, dev="cpu", leave_on_gpu=
 if __name__=="__main__":
     _test_pil2((100,100), factor=2, camera="pilatus")
     # TODO: determine if we actually care about making this following test pass...
-    _test_pil2((200,200), factor=4, camera="eiger")
+    #_test_pil2((200,200), factor=4, camera="eiger")

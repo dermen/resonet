@@ -10,6 +10,7 @@ parser.add_argument("--arch", type=str, choices=["res50", "res18", "res34", "le"
                     help="architecture of model (default: res50)")
 parser.add_argument("--geom", action="store_true")
 parser.add_argument("--display", action="store_true")
+parser.add_argument("--cent", nargs=2, type=float)
 parser.add_argument("--savefig", action="store_true")
 parser.add_argument("--predictor", type=str, choices=["rad", "one_over_rad", "res", "one_over_res"],
                     default="one_over_rad")
@@ -42,9 +43,21 @@ MODEL_FNAME = args.modelname
 model = load_model(MODEL_FNAME, arch=args.arch)
 
 fnames = glob.glob(real_data_dirname + "/*[0-9].cbf")
+
 if not fnames:
     fnames = glob.glob(real_data_dirname + "/*[0-9].mccd")
     # TODO add tensor conversion for MCCD files...
+
+fnames = ['/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00035.cbf',
+       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00047.cbf',
+       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00063.cbf',
+       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00051.cbf',
+       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00097.cbf',
+       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00121.cbf',
+       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00145.cbf',
+       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00169.cbf',
+       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00193.cbf',
+       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00217.cbf']
 
 def sanitize_inputs(fnames):
     good_fnames = []
@@ -115,9 +128,9 @@ assert loader is not None
 
 if args.maskFile is None:
     mask = loader.get_raw_data().as_numpy_array() >= 0
-    mask = ~binary_dilation(~mask, iterations=1)
+    mask = ~binary_dilation(~mask, iterations=2)
     
-    beamstop_rad = 100
+    beamstop_rad = 50
     Y,X = np.indices((ydim, xdim))
     R = np.sqrt((X-xdim/2.)**2 + (Y-ydim/2.)**2)
     out_of_beamstop = R > beamstop_rad
@@ -152,7 +165,7 @@ rank_fignames = []
 all_res = []
 rads = []
 IM = None
-for i_f, f in enumerate(fnames):
+for i_f, f in enumerate(fnames[:100]):
     if i_f % COMM.size != COMM.rank: continue
     try:
         loader = dxtbx.load(f)
@@ -167,8 +180,13 @@ for i_f, f in enumerate(fnames):
         tens_getter = eval_model.raw_img_to_tens
 
     tensors = []
+    cent = None
+    if args.cent is not None:
+        cent = args.cent
+    #cent = 1233.03,  1265.88
+    #cent = xdim/2., ydim/2.
     for quad in ("A","B","C","D"):
-        tens = tens_getter(img, mask, quad=quad)
+        tens = tens_getter(img, mask, quad=quad, cent=cent)
         tensors.append(tens)
 
     res_rads = []
@@ -196,11 +214,11 @@ for i_f, f in enumerate(fnames):
                 theta = 0.5*np.arctan(radius*factor*pixsize/detdist)
             res = 0.5*wavelen/np.sin(theta)
         res_rads.append( (res, radius, i_tens ))
-    from IPython import embed;embed()
     res, radius, i_tens = sorted(res_rads)[0]
+    #from IPython import embed;embed()
 
     #print(radius, target_rad, i_tens)
-    print(res, target_res, i_tens) #radius, target_rad, i_tens)
+    print(res, target_res, i_tens, ["%.2f "% r[0] for r  in res_rads]) #radius, target_rad, i_tens)
     all_res.append(res)
     rads.append(radius)
     rank_fnames.append(f)
