@@ -48,17 +48,6 @@ if not fnames:
     fnames = glob.glob(real_data_dirname + "/*[0-9].mccd")
     # TODO add tensor conversion for MCCD files...
 
-fnames = ['/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00035.cbf',
-       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00047.cbf',
-       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00063.cbf',
-       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00051.cbf',
-       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00097.cbf',
-       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00121.cbf',
-       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00145.cbf',
-       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00169.cbf',
-       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00193.cbf',
-       '/mnt/tmpdata/data/ALL_DATA/3.65A/K403A_A8_8KEthyGly_1_00217.cbf']
-
 def sanitize_inputs(fnames):
     good_fnames = []
     for i,f in enumerate(fnames):

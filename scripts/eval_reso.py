@@ -21,6 +21,7 @@ parser.add_argument("--leaveOnGpu", action="store_true")
 parser.add_argument("--quads", nargs="+", choices=["A", "B", "C", "D"], default="A", help="which quad to use for prediction")
 parser.add_argument("--maxProc", type=int, default=None)
 parser.add_argument("--ndev", type=int, default=1)
+parser.add_argument("--cent", nargs=2, type=float)
 args = parser.parse_args()
 
 from libtbx.mpi4py import MPI
@@ -110,7 +111,6 @@ def main():
         #if COMM.rank==0:
         #    print("done verifying image %d / %d" % (i+1, len(fnames)))
     fnames = COMM.bcast(COMM.reduce(temp))
-
 
     #fnames = sanitize_inputs(fnames)
     assert fnames
@@ -213,7 +213,6 @@ def main():
         #img = loader.get_raw_data().as_numpy_array()
         img = img.astype(np.float32)
         tread = time.time()-t
-        #if is_pil:
         tens_getter = eval_model.raw_img_to_tens_pil3
         kwargs ={}
         kwargs["leave_on_gpu"] = args.leaveOnGpu
@@ -221,6 +220,9 @@ def main():
         kwargs["maxpool"] = maxpool
         kwargs["ds_fact"] = factor
         kwargs["cent"] = xdim/2.,ydim/2.
+        if args.cent is not None:
+            kwargs["cent"] = args.cent
+
         #else:
         #    tens_getter = eval_model.raw_img_to_tens
         #    kwargs = {}
