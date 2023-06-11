@@ -227,7 +227,6 @@ def main():
         #    tens_getter = eval_model.raw_img_to_tens
         #    kwargs = {}
         
-
         if args.loop:
             resos = []
             tds = 0
