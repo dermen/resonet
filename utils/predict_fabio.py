@@ -13,7 +13,7 @@ class ImagePredictFabio(ImagePredict):
         :param args:
         :param kwargs:
         """
-        super().__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def load_image_from_file_or_array(self, detdist, pixsize, wavelen, image_file=None, raw_image=None):
         """
@@ -26,7 +26,7 @@ class ImagePredictFabio(ImagePredict):
         if image_file is None:
             assert raw_image is not None, "Need a raw image or an image file!"
         else:
-            raw_image = fabio.open(image_file).data
+            raw_image = self.get_image_array(image_file)
 
         # set the simple geometry
         self.ydim, self.xdim = raw_image.shape
@@ -35,3 +35,7 @@ class ImagePredictFabio(ImagePredict):
         self.wavelen_Angstrom = wavelen
         self._set_geom_tensor()
         self._set_pixel_tensor(raw_image)
+
+    @staticmethod
+    def get_image_array(image_file):
+        return fabio.open(image_file).data
