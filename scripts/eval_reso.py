@@ -206,27 +206,20 @@ def main():
         if i_f % COMM.size != COMM.rank: continue
         t = time.time()
         try:
-            #loader = dxtbx.load(f)
             img = fabio.open(f).data
         except:
             continue
-        #img = loader.get_raw_data().as_numpy_array()
         img = img.astype(np.float32)
-        tread = time.time()-t
-        tens_getter = eval_model.raw_img_to_tens_pil3
-        kwargs ={}
-        kwargs["leave_on_gpu"] = args.leaveOnGpu
+        tread = time.time() - t
+        tens_getter = eval_model.to_tens
+        kwargs = {}
         kwargs["dev"] = dev
         kwargs["maxpool"] = maxpool
         kwargs["ds_fact"] = factor
-        kwargs["cent"] = xdim/2.,ydim/2.
+        kwargs["cent"] = xdim/2., ydim/2.
         if args.cent is not None:
             kwargs["cent"] = args.cent
 
-        #else:
-        #    tens_getter = eval_model.raw_img_to_tens
-        #    kwargs = {}
-        
         if args.loop:
             resos = []
             tds = 0
@@ -258,7 +251,7 @@ def main():
 
                 tens = tens_getter(img, mask, quad=quad, **kwargs)
                 if isinstance(tens, np.ndarray):
-                    if not tens.dtype==np.float32:
+                    if not tens.dtype == np.float32:
                         tens = tens.astype(np.float32)
                     tens = torch.tensor(tens, device=dev)
                 if isinstance(tens, np.ndarray):
@@ -266,6 +259,7 @@ def main():
                 if dev != "cpu" and tens.device.type != "cuda":
                     tens = tens.to(dev)
                 tensors.append(tens)
+
             if args.gpus: # and COMM.rank in [0,1]:
                 torch.cuda.synchronize(device=dev)
             tds = time.time()-tds

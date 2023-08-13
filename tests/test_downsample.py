@@ -14,7 +14,7 @@ def _test_pil2(shape=None, factor=2, use_maxpool=False, dev="cpu", leave_on_gpu=
     img = np.arange(shape[0]*shape[1]).reshape(shape).astype(np.float32)
 
     print("testing maxpool algorithm in general")
-    maxpool = torch.nn.MaxPool2d(factor,factor)
+    maxpool = torch.nn.MaxPool2d(factor, factor)
     maximg = maximg_downsample(img, factor=factor, maxpool=None, dev=dev,
                                  leave_on_gpu=leave_on_gpu, convert_to_f32=convert_to_f32)
     maximg2 = maximg_downsample(img, factor=factor, maxpool=maxpool, dev=dev,
@@ -41,19 +41,20 @@ def _test_pil2(shape=None, factor=2, use_maxpool=False, dev="cpu", leave_on_gpu=
         print("Testing maxpool %s" % ("torch" if mp is not None else "bin_ndarray"))
         for q in ["A"]: #["A","B", "C", "D"]:
             quad = eval_model.raw_img_to_tens_pil2(img, mask, numpy_only=False,
-                    cent=center, IMAX=None,
+                    cent=center,
                     adu_per_photon=1, quad=q,
                     ds_fact=factor, sqrt=True, maxpool=mp, dev=dev, leave_on_gpu=False,
                     convert_to_f32=convert_to_f32)
 
-            quad2 = eval_model.raw_img_to_tens_pil3(img, mask, numpy_only=False,
-                                                   cent=center, IMAX=None,
-                                                   adu_per_photon=1, quad=q,
-                                                   ds_fact=factor, sqrt=True, maxpool=mp, dev=dev, leave_on_gpu=False,
-                                                   convert_to_f32=convert_to_f32)
-            if not  np.allclose(quad, quad2):
-                from IPython import embed;embed()
-            #assert np.allclose(quad, quad2)
+            # TODO fix
+            quad2 = eval_model.to_tens(img, mask,
+                                       cent=center,
+                                       adu_per_photon=1, quad=q,
+                                       ds_fact=factor, sqrt=True, maxpool=mp, dev=dev,
+                                       convert_to_f32=convert_to_f32)
+            #if not np.allclose(quad, quad2):
+            #    from IPython import embed;embed()
+            assert np.allclose(quad, quad2)
         print("OK")
 
 

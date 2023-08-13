@@ -14,9 +14,6 @@ except ImportError:
 
 HAS_TORCH = "torch" in sys.modules
 
-MODEL_A = "/data/blstaff/xtal/mwilson_data/diff_AI/nety_ep40.nn"
-MODEL_B = "/global/cscratch1/sd/dermen/3p15_noMulti/trial.2/nety_ep20.nn"
-
 
 def strip_names_in_state(orig_state):
     new_state = OrderedDict()
@@ -44,11 +41,8 @@ def load_model(state_name, arch="res50"):
     return model
     
 
-#MASK = np.load("/data/blstaff/xtal/mwilson_data/mask_mwils.npy")
-
 def raw_img_to_tens(raw_img, MASK, howbin='max', quad="A", cent=None, numpy_only=False,
         adu_per_photon=1, ds_fact=4, IMAX=None):
-    #img = maxbin.get_quadA(maxbin.img2int(raw_img*MASK, howbin=howbin))
 
     img = maxbin.maximg_downsample((raw_img/adu_per_photon)*MASK, factor=ds_fact)
     img[img < 0] = 0
@@ -172,7 +166,6 @@ def raw_img_to_tens_jung(raw_img, mask, numpy_only=False, cent=None, IMAX=None, 
     return quad
 
 
-
 def raw_img_to_tens_pil2(raw_img, mask, numpy_only=False, cent=None, IMAX=None, adu_per_photon=1, quad="B", ds_fact=2, sqrt=True, maxpool=None, dev="cpu", leave_on_gpu=False, convert_to_f32 =False):
     assert quad in ["A","B","C","D"]
 
@@ -230,67 +223,79 @@ def raw_img_to_tens_pil2(raw_img, mask, numpy_only=False, cent=None, IMAX=None, 
     return quad
 
 
+def to_tens(raw_img, mask, maxpool, cent=None, maxval=65025, adu_per_photon=1,
+            quad="A", ds_fact=2, sqrt=True, dev="cpu", convert_to_f32 =False):
+    """
 
-def raw_img_to_tens_pil3(raw_img, mask, numpy_only=False, cent=None, IMAX=None, adu_per_photon=1, quad="B", ds_fact=2, sqrt=True, maxpool=None, dev="cpu", leave_on_gpu=False, convert_to_f32 =False):
-    assert quad in ["A","B","C","D"]
+    Parameters
+    ----------
+    raw_img: np.ndarray, image array (numpy), e.g. 2527 x 2463 for Pilatius 6M
+    mask: np.ndarray, image mask, same shape as raw_img, but boolean with 1,0 representing unmasked,masked
+    maxpool: instance of torch.MaxPool2d
+    cent: 2-tuple of float, optional center of camera, (fast-scan coordinate, slow-scan coordinate)
+    maxval: float, saturation value (zero-out pixels above this value
+    adu_per_photon: float, factor to convert raw_img to photon units
+    quad: str, which of the 4 quads to extract ('A','B','C', or 'D')
+    ds_fact: int, what factor to downsample the image (final result should be close to 512 x 512 per quad, so set to 2
+        for Pilatus 6M and 4 for Eiger 16M
+    sqrt: bool, whether to apply sqrt to data as a normalization procedure
+    dev: pytorch device for resulting tensor to be allocated on
+    convert_to_f32: convert to float32 precision
 
-    if cent is None:
-        cent = 1231.5, 1263.5
+    Returns
+    -------
+    downsampled image stored in a 4-dimensional torch.Tensor
+    """
+    assert quad in ["A", "B", "C", "D"]
+    assert len(raw_img.shape) == 2
 
-    leave_on_gpu = True
-    n = 512 * ds_fact
-    x,y = int (round(cent[0])), int(round(cent[1]))
-    if quad=="A":
-        subimg=raw_img[y-n:y, x-n:x]
-        submask=mask[y-n:y, x-n:x]
+    if cent is None:  # if center is not provided, default to
+        y_cent, x_cent = [x/2. for x in raw_img.shape]
+        cent = x_cent, y_cent  # e.g., (1231.5, 1263.5) for Pilatus 6M
+
+    n = 512 * ds_fact  # final quad dimension is always 512
+    x, y = int(round(cent[0])), int(round(cent[1]))
+    if quad == "A":
+        subimg = raw_img[y-n:y, x-n:x]
+        submask = mask[y-n:y, x-n:x]
         k = 2
     elif quad=="B":
         subimg = raw_img[y-n:y, x:x+n]
         submask = mask[y-n:y, x:x+n]
-        k=3
-    elif quad=="C":
+        k = 3
+    elif quad == "C":
         subimg = raw_img[y:n+y, x-n:x]
         submask = mask[y:n+y, x-n:x]
-        k=1
+        k = 1
     else:
         subimg = raw_img[y:n+y, x:n+x]
         submask = mask[y:n+y, x:n+x]
-        k=0
+        k = 0
 
-    quad = maxbin.maximg_downsample((subimg/adu_per_photon)*submask, factor=ds_fact, maxpool=maxpool, dev=dev, leave_on_gpu=leave_on_gpu, convert_to_f32=convert_to_f32)
-    ROT90 = np.rot90
-    if not isinstance(quad, np.ndarray):
-        ROT90 = torch.rot90
+    masked_subimg = (subimg/adu_per_photon)*submask
+
+    if maxpool is None:
+        if convert_to_f32 and not quad.dtype == np.float32:
+            masked_subimg = masked_subimg.astype(np.float32)
+        quad = maxbin.maximg_downsample(masked_subimg, factor=ds_fact)
+        quad = torch.tensor(quad).to(dev)
+
+    else:
+        quad = torch.tensor(masked_subimg).to(dev)
+        if convert_to_f32 and not quad.dtype == torch.float32:
+            quad = quad.astype(torch.float32)
+        quad = maxbin.downsample_tensor(quad, ds_fact, maxpool)
+
     if k > 0:
-        quad = ROT90(quad, k=k)
+        quad = torch.rot90(quad, k=k)
 
     quad[quad < 0] = 0
-    if IMAX is None:
-        IMAX = 255**2
-    quad[quad >= IMAX] = IMAX
-
-    SQRT = torch.sqrt
-    FLOOR = torch.floor
-    if isinstance(quad, np.ndarray):
-        SQRT = np.sqrt
-        FLOOR = np.floor
+    quad[quad >= maxval] = maxval
 
     if sqrt:
-        quad = SQRT(quad)
-    quad = FLOOR(quad)
-    #else:
-    #    if leave_on_gpu:
-    #        quad = FLOOR(quad)
-    #    else:
-    #        quad = quad.astype(np.int32)
-    if not leave_on_gpu:
-        quad = quad.astype(np.float32)
+        quad = torch.sqrt(quad)
+    quad = torch.floor(quad)
 
-    if HAS_TORCH and not numpy_only:
-        if leave_on_gpu:
-            quad= quad[None,None]
-        else:
-            quad = torch.tensor(quad.copy()).view((1,1,n,n)).to("cpu")
+    quad = quad[None, None]
 
     return quad
-

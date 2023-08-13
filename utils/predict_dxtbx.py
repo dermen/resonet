@@ -25,7 +25,7 @@ class ImagePredictDxtbx(ImagePredict):
         :param args:
         :param kwargs:
         """
-        super().__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def load_image_from_file(self, image_file, filenum=0):
         """
@@ -55,6 +55,8 @@ class ImagePredictDxtbx(ImagePredict):
             if len(det) > 1:
                 raise NotImplementedError("Not currently supporting multi panel formats")
             raw_image = raw_image[0]
+        if not raw_image.dtype == np.float32:
+            raw_image = raw_image.astype(np.float32)
 
         self.xdim, self.ydim = det[0].get_image_size()
         self.pixsize_mm = det[0].get_pixel_size()[0]

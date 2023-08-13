@@ -85,7 +85,47 @@ def get_slice_pil(xy=None):
     return ysl, xsl
 
 
-def maximg_downsample(img, factor=2, maxpool=None, dev="cpu", leave_on_gpu=False, convert_to_f32=False):
+def downsample_tensor(tens, factor, maxpool):
+    """
+
+    Parameters
+    ----------
+    tens : torch.Tensor, 2-dimensional
+    factor: down sampling factor
+    maxpool: instance of torch.nn.MaxPool2D
+
+    Returns
+    -------
+    downsampled tensor
+    """
+    ydim, xdim = tens.shape
+    while xdim % factor:
+        xdim += 1
+    while ydim % factor:
+        ydim += 1
+    ypad = ydim - tens.shape[0]
+    xpad = xdim - tens.shape[1]
+
+    tens = PAD(PAD(tens, (0, xpad), value=0).T, (0, ypad), value=0).T
+    tens = maxpool(tens[None])[0]
+    return tens
+
+
+def maximg_downsample(img, factor=2, maxpool=None, dev="cpu",
+                      leave_on_gpu=False, convert_to_f32=False):
+    """
+
+    Parameters
+    ----------
+    img: np.ndarray
+    factor: int factor
+    maxpool: maxpool method
+    dev: torch device
+
+    Returns
+    -------
+
+    """
     ydim, xdim = img.shape
     while xdim % factor:
         xdim += 1
@@ -93,19 +133,11 @@ def maximg_downsample(img, factor=2, maxpool=None, dev="cpu", leave_on_gpu=False
         ydim += 1
     ypad = ydim - img.shape[0]
     xpad = xdim - img.shape[1]
-    #padimg = np.pad(img, ((0, ypad), (0, xpad)), mode="edge")
-    #padimg = np.zeros((ydim, xdim))
-    #from IPython import embed;embed()
-    #padimg[:ydim-ypad, :xdim-xpad] = img
-    #new_img[-ypad:,:-xpad] = img[-ypad]
-    #new_img[:-ypad,-xpad] = img[:,-xpad]
-    #from skimage.measure import block_reduce
-    #maximg = block_reduce(padimg, factor, func=np.max)
     if maxpool is not None:
         if convert_to_f32:
             img = img.astype(np.float32)
         padt = torch.tensor(img).to(dev) 
-        padt = PAD(PAD(padt,(0,xpad),value=0).T, (0,ypad), value=0).T
+        padt = PAD(PAD(padt, (0, xpad), value=0).T, (0, ypad), value=0).T
         maximg = maxpool(padt[None])[0]
         if not leave_on_gpu:
             try:
