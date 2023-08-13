@@ -39,22 +39,24 @@ def d_to_dnew(d):
 class ImagePredict:
 
     def __init__(self, reso_model=None, multi_model=None, ice_model=None, reso_arch=None,
-                 multi_arch=None, ice_arch=None, dev="cpu"):
+                 multi_arch=None, ice_arch=None, dev="cpu", use_modern_reso=True):
         """
 
         Parameters
         ----------
-        reso_model
-        multi_model
-        ice_model
-        reso_arch
-        multi_arch
-        ice_arch
-        dev
+        reso_model: resolution model path
+        multi_model: splitting model path
+        ice_model: ice detection model path
+        reso_arch: resolution arch (e.g. res50)
+        multi_arch: splitting arch
+        ice_arch: ice detection arch
+        dev: device string (e.g. 'cpu' or 'cuda:0')
+        use_modern_reso: bool, whether to use the d_to_dnew method to alter resolution
         """
         self.pixels = None  # this is the image tensor, a (512x512) representation of the diffraction shot
         self.geom = None  # the geometry tensor, (1x5) tensor with elements (detdist, wavelen, pixsize, xdim, ydim)
         self._dev = dev
+        self.use_modern_reso = use_modern_reso
         self._try_load_model("reso", reso_model, reso_arch)
         self._try_load_model("multi", multi_model, multi_arch)
         self._try_load_model("ice", ice_model, ice_arch)
@@ -192,7 +194,8 @@ class ImagePredict:
         self._check_model("reso")
         one_over_reso = self.reso_model(self.pixels, self.geom)
         reso = torch.min(1/one_over_reso).item()
-        reso = d_to_dnew(reso)
+        if self.use_modern_reso:
+            reso = d_to_dnew(reso)
         return reso
 
     def detect_multilattice_scattering(self, binary=True):
