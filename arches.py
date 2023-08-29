@@ -4,7 +4,7 @@ from abc import abstractmethod
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
-from torchvision import models #resnet18, resnet50, resnet34, resnet101, resnet152
+from torchvision import models
 
 
 class RESNetBase(nn.Module):
@@ -27,10 +27,6 @@ class RESNetBase(nn.Module):
             x = self.DROP(F.relu(self.fc1(x)))
         else:
             x = F.relu(self.fc1(x))
-        #if y is not None:
-        #    x = torch.cat((x, y), dim=1)
-        #    x = self.fc2_geom(x)
-        #else:
         x = self.fc2(x)
         if self.binary:
             x = self.Sigmoid(x)
@@ -198,3 +194,39 @@ class LeNet(nn.Module):
 
         return x
 
+
+class CounterRn(nn.Module):
+    """
+    Spot Counter resnet
+    copied from https://github.com/Isaac-Shuman/isashomod.git
+    """
+    def __init__(self, num=18, two_fc_mode=False):
+        super().__init__()
+
+        self.two_fc_mode = two_fc_mode
+
+        if num == 18:
+            self.res = models.resnet18()
+        if num == 34:
+            self.res = models.resnet34()
+        if num == 50:
+            self.res = models.resnet50()
+
+        self.res.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)#nn.Conv2d(1, self.res.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
+        self.fc_1000_to_100 = nn.Linear(1000, 100)
+        self.fc_100_to_1 = nn.Linear(100, 1)
+        self.fc_1000_to_1 = nn.Linear(1000, 1)
+
+    def forward(self, x):
+
+        x = self.res(x)
+        x = F.relu(x)
+
+        if self.two_fc_mode:
+            x = self.fc_1000_to_100(x)
+            x = F.relu(x)
+            x = self.fc_100_to_1(x)
+        else:
+            x = self.fc_1000_to_1(x)
+
+        return x
