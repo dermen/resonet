@@ -4,6 +4,7 @@ from scipy.ndimage import binary_dilation
 import numpy as np
 
 from resonet.utils.eval_model import load_model, to_tens
+from resonet.utils.counter_utils import mx_gamma, load_count_model, processPilatusImage
 
 """
 """
@@ -36,10 +37,13 @@ def d_to_dnew(d):
         return dnew
 
 
+
+
 class ImagePredict:
 
-    def __init__(self, reso_model=None, multi_model=None, ice_model=None, reso_arch=None,
-                 multi_arch=None, ice_arch=None, dev="cpu", use_modern_reso=True):
+    def __init__(self, reso_model=None, multi_model=None, ice_model=None, counts_model=None,
+                 reso_arch=None, multi_arch=None, ice_arch=None, counts_arch=None,
+                 dev="cpu", use_modern_reso=True):
         """
 
         Parameters
@@ -47,40 +51,46 @@ class ImagePredict:
         reso_model: resolution model path
         multi_model: splitting model path
         ice_model: ice detection model path
+        counts_model: spot count model path
         reso_arch: resolution arch (e.g. res50)
         multi_arch: splitting arch
         ice_arch: ice detection arch
+        counts_arch: spot count model arch
         dev: device string (e.g. 'cpu' or 'cuda:0')
         use_modern_reso: bool, whether to use the d_to_dnew method to alter resolution
         """
         self.pixels = None  # this is the image tensor, a (512x512) representation of the diffraction shot
+        self.counts_pixels = None  # downsampled tensor representation of the entire image
         self.geom = None  # the geometry tensor, (1x5) tensor with elements (detdist, wavelen, pixsize, xdim, ydim)
         self._dev = dev
         self.use_modern_reso = use_modern_reso
-        self._try_load_model("reso", reso_model, reso_arch)
-        self._try_load_model("multi", multi_model, multi_arch)
-        self._try_load_model("ice", ice_model, ice_arch)
+        self._try_load_model("reso", reso_model, reso_arch, load_model)
+        self._try_load_model("multi", multi_model, multi_arch, load_model)
+        self._try_load_model("ice", ice_model, ice_arch, load_model)
+        self._try_load_model("counts", counts_model, counts_arch, load_count_model)
         self._geom_props = ["detdist_mm", "pixsize_mm", "wavelen_Angstrom", "xdim", "ydim"]
         self.mask = None
         self.maxpool_2x2 = torch.nn.MaxPool2d(2, 2)
         self.maxpool_4x4 = torch.nn.MaxPool2d(4, 4)
+        self.maxpool_pilatus_counts = mx_gamma(self._dev)
         self.allowed_quads = {0: "A", 1: "B", 2: "C", 3: "D"}
         self.quads = [1]
 
-    def _try_load_model(self, model_name, model_path, model_arch):
+    def _try_load_model(self, model_name, model_path, model_arch, method):
         """
         If model_path is None, model will have a value of None and prediction will be disabled.
         Otherwise, the model will be set.
         :param model_name: class attribute name of the model
         :param model_path: path to the model state file (.nn)
         :param model_arch: name of the model arch (see resonet.parameters or resonet.arches)
+        :param method: method for loading model
         :return:
         """
         model = None
         if model_path is not None:
             if model_arch is None:
                 raise ValueError("Arch string required for loading model %s!" % model_name)
-            model = load_model(model_path, model_arch)
+            model = method(model_path, model_arch)
             model = model.to(self._dev)
         setattr(self, "%s_model" % model_name, model)
 
@@ -91,6 +101,15 @@ class ImagePredict:
     @pixels.setter
     def pixels(self, val):
         self._pixels = val
+
+    @property
+    def counts_pixels(self):
+        return self._counts_pixels
+
+    @counts_pixels.setter
+    def counts_pixels(self, val):
+        self._counts_pixels = val
+
 
     @property
     def geom(self):
@@ -179,6 +198,10 @@ class ImagePredict:
             tensors.append(tens)
         self.pixels = torch.concatenate(tensors)
 
+        if self.counts_model is not None:
+            self.counts_pixels = processPilatusImage(raw_img, self.maxpool_pilatus_counts,
+                                       useSqrt=True, dev=self._dev)[None]
+
     def _set_default_mask(self, raw_img):
         if self.mask is None:
             mask = raw_img >= 0
@@ -197,6 +220,17 @@ class ImagePredict:
         if self.use_modern_reso:
             reso = d_to_dnew(reso)
         return reso
+
+    def count_spots(self):
+        """
+        :return: an estimate of the number of spot in the image
+        """
+        self._check_counts_pixels()
+        self._check_geom()
+        self._check_model("counts")
+        counts = self.counts_model(self.counts_pixels)
+        counts = counts.item()
+        return counts
 
     def detect_multilattice_scattering(self, binary=True):
         """
@@ -232,6 +266,12 @@ class ImagePredict:
         if self.pixels is None:
             raise ValueError("pixel tensor isnt set, cant predict")
         if not self.pixels.dtype == torch.float32:
+            raise TypeError("Image data is not in float32!")
+
+    def _check_counts_pixels(self):
+        if self.counts_pixels is None:
+            raise ValueError("counts pixel tensor isnt set, cant predict")
+        if not self.counts_pixels.dtype == torch.float32:
             raise TypeError("Image data is not in float32!")
 
     def _check_geom(self):
