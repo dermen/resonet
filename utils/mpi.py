@@ -6,6 +6,7 @@ import numpy as np
 
 from resonet.utils import gpu
 
+
 def get_host_comm():
     """
     get an MPI communicator for all ranks sharing a specific host

@@ -186,6 +186,7 @@ class Simulator:
             if self.verbose:
                 print("Scaling background by %.3f" % bg_scale)
 
+        from IPython import embed;embed()
         img = spots*Bfac_img*paths_and_const.VOL + bg*bg_scale
 
         make_sims.set_noise(S.D)
@@ -205,7 +206,8 @@ class Simulator:
                       "Ncells_abc": C.Ncells_abc,
                       "pdb_name": pdb_name, 
                       "mos_spread": mos_spread,
-                      "crystal_scale": crystal_scale}
+                      "crystal_scale": crystal_scale,
+                      "Umat": S.crystal.dxtbx_crystal.get_U()}
 
         S.D.free_all()
 

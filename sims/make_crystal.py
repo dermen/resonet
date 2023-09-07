@@ -68,7 +68,7 @@ def load_crystal(folder, rot_mat=None, scale=1):
     pdb_base = os.path.basename(folder)
     P = process_pdb.PDB(folder + '/%s.pdb' % pdb_base)
     C.dxtbx_crystal = P.p1_dxtbx_crystal
-    C.xtal_shape = "square" #"tophat"
+    C.xtal_shape = "gauss" #"square" #"tophat"
     if rot_mat is not None:
         Umat = C.dxtbx_crystal.get_U()
         Umat = np.dot(rot_mat, np.reshape(Umat,(3,3)))

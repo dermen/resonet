@@ -356,6 +356,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
 
     assert max_ep > starting_ep
     for epoch in range(starting_ep, max_ep, 1):
+        nety.train()
 
         # <><><><><><><><
         #    Trainings 
