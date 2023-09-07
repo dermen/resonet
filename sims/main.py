@@ -167,7 +167,8 @@ def run(args, seeds, jid, njobs):
                        "beamstop_rad", "detdist", "wavelen",
                        "beam_center_fast", "beam_center_slow",
                        "cent_fast_train", "cent_slow_train",
-                       "Na", "Nb", "Nc", "pdb", "mos_spread","xtal_scale"]
+                       "Na", "Nb", "Nc", "pdb", "mos_spread","xtal_scale"] \
+                      + ["r%d" % x for x in range(1, 10)]
         geom_names = ["detdist", "wavelen", "pixsize", "xdim", "ydim"]
         lab_dset = out.create_dataset("labels", dtype=np.float32, shape=(Nshot, len(param_names)) )
         geom_dset = out.create_dataset("geom", dtype=np.float32, shape=(Nshot, len(geom_names)))
@@ -261,6 +262,7 @@ def run(args, seeds, jid, njobs):
             cent_x_train = (cent_x - xdim*.5)/factor
             cent_y_train = (cent_y - ydim*.5)/factor
             Na, Nb, Nc = params["Ncells_abc"]
+            r1,r2,r3,r4,r5,r6,r7,r8,r9 = params["Umat"]
             param_arr = [params["reso"], 1/params["reso"],
                  radius/factor, factor/radius,
                  params["multi_lattice"],
@@ -275,7 +277,8 @@ def run(args, seeds, jid, njobs):
                  Na, Nb, Nc, 
                  PDB_MAP[params["pdb_name"]],
                  params["mos_spread"],
-                 params["crystal_scale"]]
+                 params["crystal_scale"],
+                 r1,r2,r3,r4,r5,r6,r7,r8,r9]
             geom_array = [params["detector_distance"],
                              params["wavelength"],
                              pixsize,
