@@ -4,7 +4,7 @@ from scipy.ndimage import binary_dilation
 import numpy as np
 
 from resonet.utils.eval_model import load_model, to_tens
-from resonet.utils.counter_utils import mx_gamma, load_count_model, processPilatusImage
+from resonet.utils.counter_utils import mx_gamma, load_count_model, process_image
 
 """
 """
@@ -199,7 +199,7 @@ class ImagePredict:
         self.pixels = torch.concatenate(tensors)
 
         if self.counts_model is not None:
-            self.counts_pixels = processPilatusImage(raw_img, self.maxpool_pilatus_counts,
+            self.counts_pixels = process_image(raw_img, self.maxpool_pilatus_counts,
                                        useSqrt=True, dev=self._dev)[None]
 
     def _set_default_mask(self, raw_img):

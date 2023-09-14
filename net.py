@@ -40,6 +40,8 @@ def get_parser():
                              "If names are provided, this assumes the labels dataset in the hdf5 "
                              "input file has a `name` attribute set")
     parser.add_argument("--half", action="store_true", help="attempt to use half precision" )
+    parser.add_argument("--oriMode", action="store_true", help="refine orientations using 6 param rot mat")
+    parser.add_argument("--noEvalOnly", action="store_true", help="use model.train() mode during training after epoch1")
     return parser
 
 
@@ -235,7 +237,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
          label_sel=None, half_precision=False,
          title=None, COMM=None, ngpu_per_node=1, use_geom=False,
          error=0.3, weights=None, use_transform=False,
-         cp=None):
+         cp=None, ori_mode=False, eval_mode_only=True):
 
     training_args = list(locals().items())
     # model and criterion choices
@@ -261,6 +263,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
     test_rng = range(test_start, test_stop)
     assert not set(train_rng).intersection(test_rng)
     ntest = test_stop - test_start
+    ntrain = train_stop - train_start
 
     assert os.path.exists(h5input)
     if COMM is not None:
@@ -280,26 +283,38 @@ def do_training(h5input, h5label, h5imgs, outdir,
     common_args = {"dev":dev,"labels": h5label, "images": h5imgs,
                    "use_geom": use_geom, "label_sel": label_sel,
                    "half_precision": half_precision}
-    train_imgs = H5SimDataDset(h5input,
-                           start=train_start, stop=train_stop, transform=transform, **common_args)
-    train_imgs_validate = H5SimDataDset(h5input,
-                                    start=train_start, stop=train_start+ntest, **common_args)
-    test_imgs = H5SimDataDset(h5input,
-                          start=test_start, stop=test_stop, **common_args)
+
+    all_imgs = H5SimDataDset(h5input,
+                               start=0, stop=ntrain + ntest, transform=transform, **common_args)
+    #_train_imgs = H5SimDataDset(h5input,
+    #                       start=train_start, stop=train_stop, transform=transform, **common_args)
+    #_train_imgs_validate = H5SimDataDset(h5input,
+    #                                start=train_start, stop=train_start+ntest, **common_args)
+    #_test_imgs = H5SimDataDset(h5input,
+    #                      start=test_start, stop=test_stop, **common_args)
+
+    print("Randomly splitting the datasets!")
+    gen = torch.Generator().manual_seed(0)
+    train_imgs, test_imgs = torch.utils.data.random_split(all_imgs, [ntrain, ntest], generator=gen)
+    _, train_imgs_validate = torch.utils.data.random_split(train_imgs, [ntrain-ntest, ntest], generator=gen)
+
+    nout = all_imgs.nlab
+    if ori_mode:
+        nout = 6  # assert label sel is r1 r2 r3 r4 r5 r6 r7 r8 r9
 
     # instantiate model
     # TODO make geometry length a variable (for now its always [detdist, pixsize, wavelen, fastdim, slowdim]
     if cp is None:
-        nety = ARCHES[arch](nout=train_imgs.nlab, dev=train_imgs.dev, dropout=dropout, ngeom=5, weights=weights)
+        nety = ARCHES[arch](nout=nout, dev=all_imgs.dev, dropout=dropout, ngeom=5, weights=weights)
     else:
-        nety = ARCHES[arch](nout=train_imgs.nlab, dev="cpu", dropout=dropout, ngeom=5, weights=weights)
+        nety = ARCHES[arch](nout=nout, dev="cpu", dropout=dropout, ngeom=5, weights=weights)
         nety.load_state_dict(cp["model_state"])
-        nety = nety.to(train_imgs.dev)
+        nety = nety.to(all_imgs.dev)
 
     if COMM is not None:
         nety = torch.nn.SyncBatchNorm.convert_sync_batchnorm(nety)
         nety = nn.parallel.DistributedDataParallel(nety, device_ids=[gpuid], 
-            find_unused_parameters= arch in ["le", "res50"])
+            find_unused_parameters= arch in ["le", "res50", "res34"])
     if half_precision:
         print("Moving model to half precision")
         nety = nety.half()
@@ -320,7 +335,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
         logger.critical(cmdline)
     else:
         logger = get_logger(do_nothing=True)
-    logger.info("Training for %d outputs" % train_imgs.nlab)
+    logger.info("Training for %d outputs" % all_imgs.nlab)
 
     if COMM is None or COMM.rank==0:
         # optional plots
@@ -336,7 +351,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
     train_sampler = train_validate_sampler = test_sampler = None
     if COMM is not None:
         shuffle = None
-        train_sampler = DistributedSampler(train_imgs, rank=COMM.rank, num_replicas=COMM.size) 
+        train_sampler = DistributedSampler(train_imgs, rank=COMM.rank, num_replicas=COMM.size)
         train_validate_sampler = DistributedSampler(train_imgs_validate) 
         test_sampler = DistributedSampler(test_imgs) 
          
@@ -345,6 +360,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
     train_tens_validate = DataLoader(train_imgs_validate, batch_size=bs, shuffle=shuffle, 
                         sampler=train_validate_sampler)
     test_tens = DataLoader(test_imgs, batch_size=bs, shuffle=shuffle, sampler=test_sampler)
+
 
     nbatch = np.ceil((train_stop - train_start) / bs)
     if COMM is not None:
@@ -356,7 +372,8 @@ def do_training(h5input, h5label, h5imgs, outdir,
 
     assert max_ep > starting_ep
     for epoch in range(starting_ep, max_ep, 1):
-        nety.train()
+        if not eval_mode_only:
+            nety.train()
 
         # <><><><><><><><
         #    Trainings 
@@ -384,7 +401,6 @@ def do_training(h5input, h5label, h5imgs, outdir,
                     % (epoch+1, i+1, nbatch), flush=True)
 
             optimizer.zero_grad()
-
             outputs = nety(*data)
             loss = criterion(outputs, labels)
             loss.backward()
@@ -483,7 +499,8 @@ if __name__ == "__main__":
                 label_sel=args.labelSel,
                 half_precision=args.half,
                 display=not args.noDisplay, save_freq=args.saveFreq,
-                use_geom=args.useGeom, error = args.error, weights = args.weights, use_transform = args.transform)
+                use_geom=args.useGeom, error=args.error, weights=args.weights,
+                use_transform=args.transform, eval_mode_only=not args.noEvalOnly)
 
 #   TODO
 #   BINARY IMAGE CLASSIFIER -> get in the ballpark
