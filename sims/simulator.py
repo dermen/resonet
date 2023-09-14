@@ -205,7 +205,8 @@ class Simulator:
                       "Ncells_abc": C.Ncells_abc,
                       "pdb_name": pdb_name, 
                       "mos_spread": mos_spread,
-                      "crystal_scale": crystal_scale}
+                      "crystal_scale": crystal_scale,
+                      "Umat": S.crystal.dxtbx_crystal.get_U()}
 
         S.D.free_all()
 

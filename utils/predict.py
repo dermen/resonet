@@ -73,8 +73,8 @@ class ImagePredict:
 
         self.maxpool_2x2 = torch.nn.MaxPool2d(2, 2)
         self.maxpool_4x4 = torch.nn.MaxPool2d(4, 4)
-        self.maxpool_pilatus_counts = mx_gamma(self._dev, factor=3)
-        self.maxpool_eiger_counts = mx_gamma(self._dev, factor=5)
+        self.maxpool_pilatus_counts = mx_gamma(self._dev, stride=3)
+        self.maxpool_eiger_counts = mx_gamma(self._dev, stride=5)
         self.allowed_quads = {0: "A", 1: "B", 2: "C", 3: "D"}
         self.quads = [1]
 

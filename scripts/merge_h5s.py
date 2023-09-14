@@ -7,7 +7,6 @@ from argparse import ArgumentParser
 parser = ArgumentParser()
 parser.add_argument("dirnames", nargs="+", type=str, help="output folders from runme.py or runme_joblib.py")
 parser.add_argument("outname", type=str, help="name of the  master file")
-parser.add_argument("--shuffle", action="store_true", help="optionally shuffle the input files before virtualizing (influences order in master file)")
 parser.add_argument("--moreKeys", nargs="+", type=str, default=[], help="names of additional datasets to virtualize. These should be present in all rank* files!")
 args = parser.parse_args()
 

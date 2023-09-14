@@ -94,73 +94,47 @@ def raw_img_to_tens_mar(raw_img, MASK, numpy_only=False, howbin='max'):
     return img
 
 
-def raw_img_to_tens_pil2(raw_img, mask, numpy_only=False, cent=None, IMAX=None, adu_per_photon=1, quad="B"):
-    assert quad in ["A","B","C","D"]
-
-    if cent is None:
-        cent = 1231.5, 1263.5
-    ds_fact = 2  # downsample factor
-    cent_ds = int(round(cent[0]/ds_fact)), int(round(cent[1]/ds_fact))
-    img = maxbin.maximg_downsample((raw_img/adu_per_photon)*mask, factor=ds_fact)
-    img[img < 0] = 0
-    if IMAX is None:
-        IMAX = 255**2
-    img[img >= IMAX] = IMAX
-    img = np.sqrt(img)
-    img = img.astype(np.uint8).astype(np.float32)
-
-    x,y = cent_ds
-    if quad=="A":
-        subimg=img[y-512:y, x-512:x]
-        quad = np.rot90(subimg, k=2)
-        # optionally pad quad image to be 512 x 512
-    elif quad=="B":
-        subimg = img[y-512:y, x:x+512]
-        quad = np.rot90(subimg, k=3)
-    elif quad=="C":
-        subimg = img[y:512+y, x-512:x]
-        quad = np.rot90(subimg, k=1)
-    else: # quad=="D":
-        subimg = img[y:512+y, x:512+x]
-        quad = subimg
-
-    if HAS_TORCH and not numpy_only:
-        quad = torch.tensor(quad.copy()).view((1,1,512,512)).to("cpu")
-
-    return quad
-
-
-def raw_img_to_tens_jung(raw_img, mask, numpy_only=False, cent=None, IMAX=None, adu_per_photon=9.481, quad="B"):
+def raw_img_to_tens_jung(raw_img, mask, numpy_only=False, cent=None, IMAX=None, adu_per_photon=9.481, quad="B", dev="cpu"):
     assert quad in ["A","B","C","D"]
 
     if cent is None:
         cent = 2106, 2224  # from swissFEL geom
     ds_fact = 4  # downsample factor
+    maxpool = torch.nn.MaxPool2d(ds_fact,ds_fact)
     cent_ds = int(round(cent[0]/ds_fact)), int(round(cent[1]/ds_fact))
-    img = maxbin.maximg_downsample((raw_img/adu_per_photon)*mask, factor=4)
+    #img = maxbin.maximg_downsample((raw_img/adu_per_photon)*mask, factor=4)
+    img = maxbin.maximg_downsample((raw_img/adu_per_photon)*mask, factor=ds_fact, maxpool=maxpool, dev=dev, leave_on_gpu=False, convert_to_f32=True)
     img[img < 0] = 0
+    SQRT = np.sqrt
+    ROT90 = np.rot90
+    FLOOR = np.floor
+    if not isinstance(img, np.ndarray):
+        SQRT = torch.sqrt
+        ROT90 = torch.rot90
+        FLOOR = torch.floor
     if IMAX is None:
         IMAX = 2**14
     img[img > IMAX] = IMAX
-    img = np.sqrt(img)
-    img = img.astype(np.uint8).astype(np.float32)
+    img = SQRT(img)
+    img = FLOOR(img)
+    #img = img.astype(np.uint8).astype(np.float32)
 
     x,y = cent_ds
     if quad=="A":
         subimg=img[y-512:y, x-512:x]
-        quad = np.rot90(subimg, k=2)
+        quad = ROT90(subimg, k=2)
         # optionally pad quad image to be 512 x 512
     elif quad=="B":
         subimg = img[y-512:y, x:x+512]
-        quad = np.rot90(subimg, k=3)
+        quad = ROT90(subimg, k=3)
     elif quad=="C":
         subimg = img[y:512+y, x-512:x]
-        quad = np.rot90(subimg, k=1)
+        quad = ROT90(subimg, k=1)
     else: # quad=="D":
         subimg = img[y:512+y, x:512+x]
         quad = subimg
 
-    if HAS_TORCH and not numpy_only:
+    if not numpy_only and isinstance(quad, np.ndarray):
         quad = torch.tensor(quad.copy()).view((1,1,512,512)).to("cpu")
 
     return quad

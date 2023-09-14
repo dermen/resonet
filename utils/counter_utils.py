@@ -9,7 +9,7 @@ Code copied from https://github.com/Isaac-Shuman/isashomod.git
 """
 
 
-def process_image(img, cond_meth, useSqrt=False, lt=0, dev="cpu"):
+def process_image(img, cond_meth, useSqrt=True, lt=0, dev="cpu"):
     """
 
     Parameters
@@ -36,7 +36,7 @@ def process_image(img, cond_meth, useSqrt=False, lt=0, dev="cpu"):
     return cond_img
 
 
-def mx_gamma(dev=None, factor=3):
+def mx_gamma(dev=None, stride=3):
     """
 
     Parameters
@@ -47,7 +47,7 @@ def mx_gamma(dev=None, factor=3):
     -------
     Torch Compose object
     """
-    mp = torch.nn.MaxPool2d(factor, stride=factor)
+    mp = torch.nn.MaxPool2d(stride, stride=stride)
     if dev is not None:
         mp = mp.to(dev)
     tran = torchvision.transforms.Compose([

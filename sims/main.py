@@ -3,6 +3,9 @@ from argparse import ArgumentParser
 from argparse import ArgumentDefaultsHelpFormatter as arg_formatter
 import sys
 from resonet.sims.paths_and_const import PDB_MAP
+import torch
+from resonet.utils.eval_model import to_tens
+from resonet.utils import counter_utils
 
 
 def args(use_joblib=False):
@@ -41,6 +44,9 @@ def args(use_joblib=False):
     parser.add_argument("--maskFileList", type=str)
     parser.add_argument("--lowBgChance", type=float, default=0, help="probability to simulate a log background shot (default=0)")
     parser.add_argument("--uniReso", action="store_true", help="uniformly sample resolution per shot, up to the detector maximum")
+    parser.add_argument("--randQuad", action="store_true", help="randomly choose a quad to write per image")
+    parser.add_argument("--centerCrop", action="store_true", help="Alternative to quad downsampling, downsample whole image by a factor and "
+                                                                  "crop around the center")
     if use_joblib:
         parser.add_argument("--njobs", default=None, type=int, help="number of jobs")
     args = parser.parse_args()
@@ -143,17 +149,12 @@ def run(args, seeds, jid, njobs):
 
     with h5py.File(outname, "w") as out:
         out.create_dataset("nominal_mask", data=mask)
+        ds_shape = 512,512
+        if args.centerCrop:
+            ds_shape = 832, 832
         dset = out.create_dataset("images",
-                                  #shape=(Nshot,) + (1024,1024),
-                                  shape=(Nshot,) + (512,512),
+                                  shape=(Nshot,) + ds_shape,
                                   dtype=np.float32)
-        # get shape of maximg dset
-        test = np.random.random((ydim,xdim))
-        test = maxbin.maximg_downsample(test, factor)
-        maximg_sh = test.shape
-        #maximg_dset = out.create_dataset("full_maximg",
-        #                                 shape=(Nshot,) + maximg_sh,
-        #                                 dtype=np.float32)
 
         if args.saveRaw:
             raw_dset = out.create_dataset("raw_images",
@@ -167,7 +168,8 @@ def run(args, seeds, jid, njobs):
                        "beamstop_rad", "detdist", "wavelen",
                        "beam_center_fast", "beam_center_slow",
                        "cent_fast_train", "cent_slow_train",
-                       "Na", "Nb", "Nc", "pdb", "mos_spread","xtal_scale"]
+                       "Na", "Nb", "Nc", "pdb", "mos_spread","xtal_scale"] \
+                      + ["r%d" % x for x in range(1, 10)]
         geom_names = ["detdist", "wavelen", "pixsize", "xdim", "ydim"]
         lab_dset = out.create_dataset("labels", dtype=np.float32, shape=(Nshot, len(param_names)) )
         geom_dset = out.create_dataset("geom", dtype=np.float32, shape=(Nshot, len(geom_names)))
@@ -249,18 +251,30 @@ def run(args, seeds, jid, njobs):
 
             # process the raw images according to detector model
             if xdim==2463:  # Pilatus 6M
-                quad = eval_model.raw_img_to_tens_pil(img, shot_mask, xy=(int(round(cent_x)), int(round(cent_y))))
-                #quad = eval_model.raw_img_to_tens_pil2(img, shot_mask, quad="A", ds_fact=1,sqrt=True)
-
+                quad_ds_fact = 2
+                center_ds_fact = 3
             elif xdim==4096:  # Mar
-                quad = eval_model.raw_img_to_tens_mar(img, shot_mask)
+                quad_ds_fact = 4
+                center_ds_fact = 5
             else:  # Eiger
-                quad = eval_model.raw_img_to_tens(img, shot_mask)
+                quad_ds_fact = 4
+                center_ds_fact = 5
+
+            if args.centerCrop:
+                max_pool = counter_utils.mx_gamma(stride=center_ds_fact)
+                ds_img = counter_utils.process_image(img, max_pool, useSqrt=True)[0]
+            else:
+                max_pool = torch.nn.MaxPool2d(quad_ds_fact, quad_ds_fact)
+                q = 'A'
+                if args.randQuad:
+                    q = np.random.choice(["A", "B", "C", "D"])
+                ds_img = to_tens(img, shot_mask, maxpool=max_pool, ds_fact=quad_ds_fact, quad=q)
 
             # convert cent_x, cent_y to downsampled version
             cent_x_train = (cent_x - xdim*.5)/factor
             cent_y_train = (cent_y - ydim*.5)/factor
             Na, Nb, Nc = params["Ncells_abc"]
+            r1,r2,r3,r4,r5,r6,r7,r8,r9 = params["Umat"]
             param_arr = [params["reso"], 1/params["reso"],
                  radius/factor, factor/radius,
                  params["multi_lattice"],
@@ -275,7 +289,8 @@ def run(args, seeds, jid, njobs):
                  Na, Nb, Nc, 
                  PDB_MAP[params["pdb_name"]],
                  params["mos_spread"],
-                 params["crystal_scale"]]
+                 params["crystal_scale"],
+                 r1,r2,r3,r4,r5,r6,r7,r8,r9]
             geom_array = [params["detector_distance"],
                              params["wavelength"],
                              pixsize,
@@ -291,7 +306,7 @@ def run(args, seeds, jid, njobs):
             #maximg = maximg.astype(np.float32)
             #maximg_dset[i_shot] = maximg
 
-            dset[i_shot] = quad
+            dset[i_shot] =ds_img
             geom_dset[i_shot] = geom_array
             lab_dset[i_shot] = param_arr
             t = time.time()-t
