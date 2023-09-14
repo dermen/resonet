@@ -4,7 +4,7 @@ from scipy.ndimage import binary_dilation
 import numpy as np
 
 from resonet.utils.eval_model import load_model, to_tens
-from resonet.utils.counter_utils import mx_gamma, load_count_model, processPilatusImage
+from resonet.utils.counter_utils import mx_gamma, load_count_model, process_image
 
 """
 """
@@ -70,9 +70,11 @@ class ImagePredict:
         self._try_load_model("counts", counts_model, counts_arch, load_count_model)
         self._geom_props = ["detdist_mm", "pixsize_mm", "wavelen_Angstrom", "xdim", "ydim"]
         self.mask = None
+
         self.maxpool_2x2 = torch.nn.MaxPool2d(2, 2)
         self.maxpool_4x4 = torch.nn.MaxPool2d(4, 4)
-        self.maxpool_pilatus_counts = mx_gamma(self._dev)
+        self.maxpool_pilatus_counts = mx_gamma(self._dev, factor=3)
+        self.maxpool_eiger_counts = mx_gamma(self._dev, factor=5)
         self.allowed_quads = {0: "A", 1: "B", 2: "C", 3: "D"}
         self.quads = [1]
 
@@ -199,7 +201,10 @@ class ImagePredict:
         self.pixels = torch.concatenate(tensors)
 
         if self.counts_model is not None:
-            self.counts_pixels = processPilatusImage(raw_img, self.maxpool_pilatus_counts,
+            mx = self.maxpool_pilatus_counts
+            if not is_pil:
+                mx = self.maxpool_eiger_counts
+            self.counts_pixels = process_image(raw_img, cond_meth=mx,
                                        useSqrt=True, dev=self._dev)[None]
 
     def _set_default_mask(self, raw_img):

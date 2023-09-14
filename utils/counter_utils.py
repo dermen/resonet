@@ -9,7 +9,7 @@ Code copied from https://github.com/Isaac-Shuman/isashomod.git
 """
 
 
-def processPilatusImage(img, cond_meth, useSqrt=False, lt=0, dev="cpu"):
+def process_image(img, cond_meth, useSqrt=False, lt=0, dev="cpu"):
     """
 
     Parameters
@@ -36,18 +36,18 @@ def processPilatusImage(img, cond_meth, useSqrt=False, lt=0, dev="cpu"):
     return cond_img
 
 
-def mx_gamma(dev=None):
+def mx_gamma(dev=None, factor=3):
     """
 
     Parameters
     ----------
     dev: torch device
-
+    factor: downsampling factor (should be 3 for Pilatus 6M and 5 for Eiger 16M)
     Returns
     -------
     Torch Compose object
     """
-    mp = torch.nn.MaxPool2d(3, stride=3)
+    mp = torch.nn.MaxPool2d(factor, stride=factor)
     if dev is not None:
         mp = mp.to(dev)
     tran = torchvision.transforms.Compose([
