@@ -31,7 +31,8 @@ class Simulator:
     def simulate(self, rot_mat=None, multi_lattice_chance=0, max_lat=2, mos_min_max=None,
                  pdb_name=None, plastic_stol=None, dev=0, mos_dom_override=None, vary_background_scale=False,
                  randomize_dist=False, randomize_wavelen=False, randomize_center=False,
-                 randomize_scale=False, low_bg_chance=0, uniform_reso=False, roi=None):
+                 randomize_scale=False, low_bg_chance=0, uniform_reso=False, roi=None,
+                 old_multi_spread=True):
         """
 
         :param rot_mat: specific orientation matrix for crystal
@@ -134,11 +135,13 @@ class Simulator:
             num_additional_lat = np.random.choice(range(1,max_lat))
             mats = Rotation.random(num_additional_lat).as_matrix()
             vecs = np.dot(np.array([1, 0, 0])[None], mats)[0]
-            #std_angs = 0
-            #while (std_angs < 3):
-            angs = np.random.uniform(1, 180, num_additional_lat)
-            #    std_angs = np.std(angs)
-            ang_sigma = np.std(np.append(angs,[0]))
+
+            if old_multi_spread:
+                ang_sigma = np.random.choice([0.1,1,10])
+                angs = np.random.normal(0, ang_sigma, num_additional_lat)
+            else:
+                angs = np.random.uniform(1, 180, num_additional_lat)
+                ang_sigma = np.std(np.append(angs,[0]))
             scaled_vecs = vecs*angs[:, None]
             rot_mats = Rotation.from_rotvec(scaled_vecs).as_matrix()
 
