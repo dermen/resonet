@@ -73,6 +73,18 @@ class CurveFitMLP:
             yfit = self.model(xtens)
         return yfit.numpy()
 
+    def save_model(self, filename):
+        torch.save({"mod": self.model.state_dict(), "hidden_dims": self.hidden_dims}, filename)
+
+    @staticmethod
+    def load_model(filename):
+        model_dict = torch.load(filename)
+        hidden_dims = model_dict["hidden_dims"]
+        model = MLP(1, hidden_dims)
+        model.load_state_dict(model_dict["mod"])
+        model.eval()
+        return model
+
 
 if __name__ == "__main__":
     # Example of using the above class
