@@ -1,19 +1,19 @@
 from argparse import ArgumentParser
 
 parser = ArgumentParser()
-from copy import deepcopy
-parser.add_argument("file", type=str)
-parser.add_argument("--out", type=str, default="test")
-parser.add_argument("--mask", type=str, default=None)
-parser.add_argument("--geom", type=str, default=None)
-parser.add_argument("--reso", type=str, default=None)
-parser.add_argument("--thresh", type=float, default=0)
-parser.add_argument("--ndev", type=int, default=4)
-parser.add_argument("--darkz", type=float, default=7)
-parser.add_argument("--minSpotSize", type=int, default=None)
-parser.add_argument("--kernelSize", default=None, nargs=2, type=int)
-parser.add_argument("--dmin", default=None, type=float)
-parser.add_argument("--cpu", action="store_true")
+parser.add_argument("file", type=str, help="input image file")
+parser.add_argument("--out", type=str, default="test", help="optional output folder")
+parser.add_argument("--mask", type=str, default=None, help="path to mask.pkl")
+parser.add_argument("--geom", type=str, default=None, help="path to .expt file containing reference geom (optional)")
+parser.add_argument("--reso", type=str, default=None, help="path to resolution model")
+parser.add_argument("--multi", type=str, default=None, help="path to overlapping lattice model")
+parser.add_argument("--ndev", type=int, default=1, help="number of GPU devices (default=1)")
+parser.add_argument("--darkz", type=float, default=7, help="threshold for removing dark subtraction outliers (only matters for CXIDB17 CSPAD data)")
+parser.add_argument("--thresh", type=float, default=0, help="DIALS golbal threshold for spot finding (default=0)")
+parser.add_argument("--minSpotSize", type=int, default=None, help="DIALS spotfinder filter parameter")
+parser.add_argument("--kernelSize", default=None, nargs=2, type=int, help="DIALS spotfinder kernel size")
+parser.add_argument("--dmin", default=None, type=float, help="DIALS spotfinder filter parameters")
+parser.add_argument("--cpu", action="store_true", help="force CPU usage for PyTorch (will likely use OpenMP so if using MPI, be wary of OpenMP (e.g. in that case set OMP_NUM_THREADS=2)")
 args = parser.parse_args()
 
 from mpi4py import MPI
@@ -58,6 +58,7 @@ def clean_edge(img, s=2):
         img[i] = pan
     return img
 
+
 ucells = {
     "r0018_2000.h5": (73,96,119,90,90,90),
     "r0095_2000.h5": (118,223,311,90,90,90),
@@ -101,6 +102,10 @@ formats={
 
 
 basename = os.path.basename(args.file)
+if basename not in list(ucells):
+    allowed = ", ".join(list(ucells.keys()))
+    raise KeyError("Warning, the input file should be one of %s." % allowed)
+
 SYMBOL = symbols[basename]
 GAIN = gains[basename]
 UCELL = ucells[basename]
@@ -109,7 +114,6 @@ MASK = None
 sym = crystal.symmetry(UCELL, SYMBOL)
 
 params = phil_scope.extract()
-
 params.spotfinder.threshold.algorithm = "dispersion"
 if args.minSpotSize is not None:
     params.spotfinder.filter.min_spot_size = args.minSpotSize
@@ -209,6 +213,7 @@ Nimg = loader.get_num_images()
 all_reso, all_multi = [], []
 
 mode = transforms.InterpolationMode.BICUBIC
+# for smal_det=True, pad to 2048x2048 (with a little wiggle room for offcenter cameras) 
 rs = transforms.Resize((2060,2060), interpolation=mode, antialias=True)
 
 cent = None
