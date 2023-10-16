@@ -1,3 +1,10 @@
+from argparse import ArgumentParser
+parser = ArgumentParser()
+parser.add_argument("dirname", type=str)
+parser.add_argument("--njobs", type=int, default=4)
+parser.add_argument("--names", type=str, default=None, nargs='+')
+args = parser.parse_args()
+
 import h5py
 from joblib import Parallel, delayed
 #from mpi4py import MPI
@@ -14,16 +21,15 @@ usage:
 Will create new files in folder baxter.4 using 10 processes
 """
 
-DIRNAME = sys.argv[1]
-NJOBS = int(sys.argv[2])
+
 
 #NJOBS=COMM.size
 
 def main(jid):
-    fnames = glob.glob(DIRNAME + "/compressed*.h5")
+    fnames = glob.glob(args.dirname + "/compressed*.h5")
 
     for i_f, f in enumerate(fnames):
-        if i_f % NJOBS != jid:
+        if i_f % args.njobs != jid:
             continue
         fnew = f.replace("compressed", "rank")
         try:
@@ -32,7 +38,10 @@ def main(jid):
             continue
         imgs = h['images']
         labels = h['labels'][()]
-        geom = h['geom'][()]
+        try:
+            geom = h['geom'][()]
+        except KeyError:
+            geom = None
         with h5py.File(fnew, "w") as hnew:
             dset = hnew.create_dataset("images", shape=imgs.shape, dtype=np.float32)
             for i_img in range(imgs.shape[0]):
@@ -41,10 +50,15 @@ def main(jid):
                 dset[i_img] = imgs[i_img].astype(np.float32)
                 
             lab_dset = hnew.create_dataset("labels", data=labels.astype(np.float32))
-            geom_dset = hnew.create_dataset("geom", data=geom.astype(np.float32))
-            geom_dset.attrs['names'] = h['geom'].attrs['names']
-            lab_dset.attrs['names'] = h['labels'].attrs['names']
+            if geom is not None:
+                geom_dset = hnew.create_dataset("geom", data=geom.astype(np.float32))
+                geom_dset.attrs['names'] = h['geom'].attrs['names']
+
+            if args.names is None:
+                lab_dset.attrs['names'] = h['labels'].attrs['names']
+            else:
+                lab_dset.attrs["names"] = args.names
 
 #main(COMM.rank)
-Parallel(n_jobs=NJOBS)(delayed(main)(jid) for jid in range(NJOBS))
+Parallel(n_jobs=args.njobs)(delayed(main)(jid) for jid in range(args.njobs))
 

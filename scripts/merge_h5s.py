@@ -76,22 +76,4 @@ with h5py.File(args.outname, "w") as H:
         #if key == "labels":
         #    vd.attrs["names"] = label_names
 
-#if args.shuffle:
-#    Sources = {}
-#    if ngeom_params:
-#        Sources["geom"] =h5py.VirtualSource(args.outname, "geom", shape=(total_imgs,ngeom_params))
-#    for key in shapes:
-#        Sources[key] = h5py.VirtualSource(args.outname, key, shape=(total_imgs,) + shapes[key])
-#
-#    names = set(Sources).intersection(Layouts)
-#    print("Shuffle virtual sets:\n\t", names)
-#    order = np.random.permutation(total_imgs)
-#    for i_new, i_old in enumerate(order):
-#        for name in names:
-#            Layouts[name][i_new] = Sources[name][i_old]
-#
-#    with h5py.File(args.outname, "r+") as H:
-#        for key in Layouts:
-#            H.create_virtual_dataset(key+".shuff", Layouts[key])
-
 print("Done!")

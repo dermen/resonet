@@ -30,6 +30,7 @@ def d_to_dnew(d):
         # TODO: discuss whether its better to fall back on simply d (input to function) here
         # fall back on a linear fit to high-res data in the PDB
         # B = 18d - 4
+        return d
         dnew = np.sqrt((B - 4) / 18)
         return dnew
     else:
@@ -204,7 +205,13 @@ class ImagePredict:
             mx = self.maxpool_pilatus_counts
             if not is_pil:
                 mx = self.maxpool_eiger_counts
-            self.counts_pixels = process_image(raw_img, cond_meth=mx,
+            if self.mask is not None:
+                if self.mask.shape != raw_img.shape:
+                    raise ValueError("self.mask and raw_img have shape mismatch!")
+                im = raw_img*self.mask
+            else:
+                im = raw_img
+            self.counts_pixels = process_image(im, cond_meth=mx,
                                        useSqrt=True, dev=self._dev)[None]
 
     def _set_default_mask(self, raw_img):
@@ -231,7 +238,7 @@ class ImagePredict:
         :return: an estimate of the number of spot in the image
         """
         self._check_counts_pixels()
-        self._check_geom()
+        #self._check_geom()
         self._check_model("counts")
         counts = self.counts_model(self.counts_pixels)
         counts = counts.item()

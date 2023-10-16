@@ -44,6 +44,7 @@ def load_model(state_name, arch="res50"):
 def raw_img_to_tens(raw_img, MASK, howbin='max', quad="A", cent=None, numpy_only=False,
         adu_per_photon=1, ds_fact=4, IMAX=None):
 
+
     img = maxbin.maximg_downsample((raw_img/adu_per_photon)*MASK, factor=ds_fact)
     img[img < 0] = 0
     if IMAX is None:

@@ -4,7 +4,7 @@ from simtbx.diffBragg.utils import image_data_from_expt
 
 def project_jungfrau(expt, normalize=True, mask=None, return_center=False, img=None):
     """
-
+    Note, this works for any multi-panel detector, historically its called project_jungfrau
     :param expt: dxtbx experiment object
     :param normalize: whether to use mean (versus sum) for binning
     :param mask: optional mask
@@ -74,3 +74,4 @@ def make_psf(DET):
         F.append(fdet)
 
     return np.array(P),np.array(F),np.array(S)
+

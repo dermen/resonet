@@ -15,7 +15,7 @@ class ImagePredictFabio(ImagePredict):
         """
         super().__init__(*args, **kwargs)
 
-    def load_image_from_file_or_array(self, detdist, pixsize, wavelen, image_file=None, raw_image=None):
+    def load_image_from_file_or_array(self, detdist=None, pixsize=None, wavelen=None, image_file=None, raw_image=None):
         """
         :param detdist: sample-to-detector distance in mm
         :param pixsize: pixel size in mm
@@ -33,7 +33,8 @@ class ImagePredictFabio(ImagePredict):
         self.detdist_mm = detdist
         self.pixsize_mm = pixsize
         self.wavelen_Angstrom = wavelen
-        self._set_geom_tensor()
+        if not any([val is None for val in [detdist, pixsize, wavelen]]):
+            self._set_geom_tensor()
         self._set_pixel_tensor(raw_image)
 
     @staticmethod

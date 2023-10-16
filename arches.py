@@ -31,14 +31,21 @@ class RESNetBase(nn.Module):
         if self.binary:
             x = self.Sigmoid(x)
         if y is not None:
-            # NOTE this is for 1/reso
-            detdist, pixsize, wavelen, xdim, ydim = y.T
-            is_pilatus = xdim==2463
-            # convert xdim to a downsampling term:
-            xdim[is_pilatus] = 2
-            xdim[~is_pilatus] = 4
-            theta = torch.arctan(((xdim * pixsize / detdist) * x.T).T) * 0.5
+            if y.shape[-1] == 4:  # NEWWAY provide downsampling factor directly
+                detdist, pixsize, wavelen, fact = y.T
+
+            elif y.shape[-1] == 5:  # OLDWAY, geom is xdim+ydim
+                detdist, pixsize, wavelen, fact, _ = y.T
+                is_pilatus = fact==2463
+                # convert xdim to a downsampling term:
+                fact[is_pilatus] = 2
+                fact[~is_pilatus] = 4
+            else:
+                raise ValueError("unsupported y shape")
+
+            theta = torch.arctan(((fact * pixsize / detdist) * x.T).T) * 0.5
             stheta = torch.sin(theta)
+            # NOTE this is for 1/reso
             x = ((2/wavelen)*stheta.T).T
         return x
 
