@@ -6,6 +6,8 @@ import torch
 import torch.nn.functional as F
 from torchvision import models
 
+from resonet.utils import orientation
+
 
 class RESNetBase(nn.Module):
 
@@ -47,6 +49,8 @@ class RESNetBase(nn.Module):
             stheta = torch.sin(theta)
             # NOTE this is for 1/reso
             x = ((2/wavelen)*stheta.T).T
+        if self.ori_mode:
+            x = orientation.gs_mapping(x)
         return x
 
     @property
@@ -70,6 +74,16 @@ class RESNetBase(nn.Module):
     @abstractmethod
     def dev(self, val):
         self._dev = val
+
+    @property
+    @abstractmethod
+    def ori_mode(self):
+        return self._ori_mode
+
+    @ori_mode.setter
+    @abstractmethod
+    def ori_mode(self, val):
+        self._ori_mode = val
 
     @property
     @abstractmethod
@@ -144,6 +158,7 @@ class RESNetAny(RESNetBase):
             self.resnet = model().to(self.dev)
 
         self.binary = False
+        self.ori_mode = False
         self._set_blocks()
 
 

@@ -41,6 +41,7 @@ def get_parser():
                              "input file has a `name` attribute set")
     parser.add_argument("--half", action="store_true", help="attempt to use half precision" )
     parser.add_argument("--oriMode", action="store_true", help="refine orientations using 6 param rot mat")
+    parser.add_argument("--debugMode", action="store_true", help="run with detect_anaomly e.g. find NaNs in model/grad")
     parser.add_argument("--noEvalOnly", action="store_true", help="use model.train() mode during training after epoch1")
     return parser
 
@@ -61,9 +62,9 @@ from torch.utils.data import DataLoader
 from torchmetrics.classification import BinaryJaccardIndex
 from torchvision import transforms
 
+from resonet.utils import orientation
 from resonet.params import ARCHES, LOSSES
 from resonet.loaders import H5SimDataDset
-from resonet import arches
 
 
 def get_logger(filename=None, level="info", do_nothing=False):
@@ -104,6 +105,7 @@ def validate(input_tens, model, epoch, criterion, COMM=None, error = 0.3):
     """
     logger = logging.getLogger("resonet")
     using_bce = str(criterion).startswith("BCE")
+    ori_mode = criterion.__module__ == 'resonet.utils.orientation'
 
     total = 0
     nacc = 0  # number of accurate predictions
@@ -125,13 +127,17 @@ def validate(input_tens, model, epoch, criterion, COMM=None, error = 0.3):
         if using_bce:
             pred = torch.round(torch.sigmoid(pred))
         else:
-            errors = (pred-labels).abs()
+            if ori_mode:
+                # this is the ori_mode=True case
+                errors = orientation.loss(pred, labels, reduce=False)[:,None]
+            else:
+                errors = (pred-labels).abs()
             is_accurate = errors < error
             nacc += is_accurate.all(dim=1).sum().item()
             total += len(labels)
 
-        all_lab += [[l.item() for l in labs] for labs in labels]
-        all_pred += [[p.item() for p in preds] for preds in pred]
+        all_lab += [[l.item() for l in labs.ravel()] for labs in labels]
+        all_pred += [[p.item() for p in preds.ravel()] for preds in pred]
 
     if COMM is not None:
         all_lab = COMM.bcast(COMM.reduce(all_lab))
@@ -143,7 +149,12 @@ def validate(input_tens, model, epoch, criterion, COMM=None, error = 0.3):
     all_lab = np.array(all_lab).T
     all_pred = np.array(all_pred).T
 
-    if not using_bce:
+    if ori_mode:
+        acc = nacc / total *100
+        ave_loss = np.mean(all_loss)
+        return acc, ave_loss, all_lab, all_pred
+
+    elif not using_bce:
         acc = nacc / total*100.
         pears = [pearsonr(L,P)[0] for L,P in zip(all_lab, all_pred)]
         spears = [spearmanr(L,P)[0] for L,P in zip(all_lab, all_pred)]
@@ -168,23 +179,29 @@ def plot_acc(ax, idx, acc, epoch, starting_ep):
     lx, ly = ax.lines[idx].get_data()
     ax.lines[idx].set_data(np.append(lx, epoch+1),np.append(ly, acc) )
     if epoch == starting_ep:
-        ax.set_ylim(acc*0.97,acc*1.03)
+        y1, y2 = acc*0.97,acc*1.03
     else:
-        ax.set_ylim(min(min(ly), acc)*0.97, max(max(ly), acc)*1.03)
+        y1, y2 =  min(min(ly), acc)*0.97, max(max(ly), acc)*1.03
+    if y2==y1:
+        y2 += 1e-6
+    ax.set_ylim(y1,y2)
 
 
 def save_results_fig(outname, test_lab, test_pred):
-    for i_prop in range(test_lab.shape[0]):
-        plt.figure()
-        plt.plot(test_lab[i_prop], test_pred[i_prop], '.')
-        plt.title("Learned property %d"% i_prop)
-        plt.xlabel("truth", fontsize=16)
-        plt.ylabel("prediction", fontsize=16)
-        plt.gca().tick_params(labelsize=12)
-        plt.gca().grid(lw=0.5, ls="--")
-        plt.subplots_adjust(bottom=.13, left=0.12, right=0.96, top=0.91)
-        plt.savefig(outname.replace(".nn", "_results%d.png" % i_prop))
-        plt.close()
+    try:
+        for i_prop in range(test_lab.shape[0]):
+            plt.figure()
+            plt.plot(test_lab[i_prop], test_pred[i_prop], '.')
+            plt.title("Learned property %d"% i_prop)
+            plt.xlabel("truth", fontsize=16)
+            plt.ylabel("prediction", fontsize=16)
+            plt.gca().tick_params(labelsize=12)
+            plt.gca().grid(lw=0.5, ls="--")
+            plt.subplots_adjust(bottom=.13, left=0.12, right=0.96, top=0.91)
+            plt.savefig(outname.replace(".nn", "_results%d.png" % i_prop))
+            plt.close()
+    except:
+        pass
 
     with h5py.File(outname.replace(".nn", "_predictions.h5"), "w") as h:
         h.create_dataset("test_pred",data= test_pred)
@@ -192,8 +209,11 @@ def save_results_fig(outname, test_lab, test_pred):
 
 
 def set_ylims(ax):
-    ax.set_ylim(min([min(axl.get_data()[1]) for axl in ax.lines])*0.97,
-                max([max(axl.get_data()[1]) for axl in ax.lines])*1.03)
+    y1,y2 = min([min(axl.get_data()[1]) for axl in ax.lines])*0.97, \
+            max([max(axl.get_data()[1]) for axl in ax.lines]) * 1.03
+    if y1==y2:
+        y2 += 1e-6
+    ax.set_ylim(y1, y2)
 
 
 def setup_subplots(title=""):
@@ -226,8 +246,23 @@ def update_plots(ax0,ax1, epoch):
     ax1.legend(prop={"size":12})
 
 
+def _train_iter(data, labels, model, criterion, optimizer):
+    """
+    :param data: data tensor
+    :param labels: label tensor
+    :param model: pytorch model
+    :param criterion: pytorch loss
+    :param optimizer: pytorch optimizer
+    """
+    optimizer.zero_grad()
+    outputs = model(*data)
+    loss = criterion(outputs, labels)
+    loss.backward()
+    optimizer.step()
+
+
 def do_training(h5input, h5label, h5imgs, outdir,
-         lr=1e-3, bs=16, max_ep=100, momentum=0.9,
+                lr=1e-3, bs=16, max_ep=100, momentum=0.9,
          weight_decay=0, dropout=False,
          nesterov=False, damp=0,
          arch="res50", loss="L1", dev="cuda:0",
@@ -237,7 +272,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
          label_sel=None, half_precision=False,
          title=None, COMM=None, ngpu_per_node=1, use_geom=False,
          error=0.3, weights=None, use_transform=False,
-         cp=None, ori_mode=False, eval_mode_only=True):
+         cp=None, ori_mode=False, eval_mode_only=True, debug_mode=False):
 
     training_args = list(locals().items())
     # model and criterion choices
@@ -286,12 +321,6 @@ def do_training(h5input, h5label, h5imgs, outdir,
 
     all_imgs = H5SimDataDset(h5input,
                                start=0, stop=ntrain + ntest, transform=transform, **common_args)
-    #_train_imgs = H5SimDataDset(h5input,
-    #                       start=train_start, stop=train_stop, transform=transform, **common_args)
-    #_train_imgs_validate = H5SimDataDset(h5input,
-    #                                start=train_start, stop=train_start+ntest, **common_args)
-    #_test_imgs = H5SimDataDset(h5input,
-    #                      start=test_start, stop=test_stop, **common_args)
 
     print("Randomly splitting the datasets!")
     gen = torch.Generator().manual_seed(0)
@@ -319,7 +348,11 @@ def do_training(h5input, h5label, h5imgs, outdir,
         print("Moving model to half precision")
         nety = nety.half()
 
+    nety.ori_mode = ori_mode
+
     criterion = LOSSES[loss]()
+    if ori_mode:
+        criterion = orientation.loss
     optimizer = optim.SGD(nety.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay, nesterov=nesterov, dampening=damp )
     if cp is not None:
         optimizer.load_state_dict(cp["optimizer_state"])
@@ -361,7 +394,6 @@ def do_training(h5input, h5label, h5imgs, outdir,
                         sampler=train_validate_sampler)
     test_tens = DataLoader(test_imgs, batch_size=bs, shuffle=shuffle, sampler=test_sampler)
 
-
     nbatch = np.ceil((train_stop - train_start) / bs)
     if COMM is not None:
         nbatch = np.ceil((train_stop - train_start) / bs / COMM.size)
@@ -399,12 +431,12 @@ def do_training(h5input, h5label, h5imgs, outdir,
             if COMM is None or COMM.rank==0:
                 print("Training Epoch %d batch %d/%d" \
                     % (epoch+1, i+1, nbatch), flush=True)
+            if debug_mode:
+                with torch.autograd.detect_anomaly():
+                    _train_iter(data, labels, nety, criterion, optimizer)
+            else:
+                _train_iter(data, labels, nety, criterion, optimizer)
 
-            optimizer.zero_grad()
-            outputs = nety(*data)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
         ttrain = time.time()-t0
         if COMM is None or COMM.rank==0:
             print("Traing time: %.4f sec" % ttrain, flush=True)
@@ -421,19 +453,22 @@ def do_training(h5input, h5label, h5imgs, outdir,
             logger.info("Train loss=%.7f, Test loss=%.7f" % (train_loss, test_loss))
 
             mx_acc = max(acc, mx_acc)
-            
-            if COMM is None or COMM.rank==0:    
-                plot_acc(ax0, 0, test_loss, epoch, starting_ep)
-                plot_acc(ax0, 1, train_loss, epoch, starting_ep)
-                plot_acc(ax0, 2, train_loss, epoch, starting_ep)
-                plot_acc(ax1, 0, acc, epoch, starting_ep)
-                plot_acc(ax1, 1, train_acc, epoch, starting_ep)
 
-                update_plots(ax0,ax1, epoch)
+            try:
+                if COMM is None or COMM.rank==0:
+                    plot_acc(ax0, 0, test_loss, epoch, starting_ep)
+                    plot_acc(ax0, 1, train_loss, epoch, starting_ep)
+                    plot_acc(ax0, 2, train_loss, epoch, starting_ep)
+                    plot_acc(ax1, 0, acc, epoch, starting_ep)
+                    plot_acc(ax1, 1, train_acc, epoch, starting_ep)
 
-                if display:
-                    plt.draw()
-                    plt.pause(0.3)
+                    update_plots(ax0,ax1, epoch)
+
+                    if display:
+                        plt.draw()
+                        plt.pause(0.3)
+            except Exception as err:
+                pass
 
         # <><><><><><><><
         #  End Validation
@@ -500,7 +535,8 @@ if __name__ == "__main__":
                 half_precision=args.half,
                 display=not args.noDisplay, save_freq=args.saveFreq,
                 use_geom=args.useGeom, error=args.error, weights=args.weights,
-                use_transform=args.transform, eval_mode_only=not args.noEvalOnly)
+                use_transform=args.transform, eval_mode_only=not args.noEvalOnly,
+                ori_mode=args.oriMode, debug_mode=args.debugMode)
 
 #   TODO
 #   BINARY IMAGE CLASSIFIER -> get in the ballpark

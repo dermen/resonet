@@ -15,7 +15,7 @@ for i,l in enumerate(lines):
             test_acc = float(lines[i+1].split(":")[-1].split("%")[0])
             test.append(test_acc)
             print(test_acc)
-        except IndexError:
+        except (ValueError, IndexError):
             print("failed")
             pass
     elif "train accuracy" in l:
@@ -23,7 +23,7 @@ for i,l in enumerate(lines):
             train_acc = float(lines[i+1].split(":")[-1].split("%")[0])
             print(train_acc, "train")
             train.append(train_acc)
-        except IndexError:
+        except (ValueError, IndexError):
             print("failed2")
             pass
     elif "Train loss" in l and "Test loss" in l:
@@ -37,18 +37,19 @@ for i,l in enumerate(lines):
 
 
 import pylab as plt
-epochs = range(1, len(train)+1)
+epochs = range(1, len(train_loss)+1)
 plot_kwargs = {'ms':6, 'ls':'-', 'lw': 2, }
 
 
 plt.subplot(121)
-plt.plot(epochs, train,marker='o',color='C0', label="train", **plot_kwargs)
-plt.plot(epochs, test,marker='s',color='tomato',label="test", **plot_kwargs)
-plt.xlabel("epoch", fontsize=18)
-plt.ylabel("accuracy", fontsize=18)
-plt.gca().tick_params(labelsize=15)
-plt.gca().grid(1)
-plt.legend(prop={"size": 15})
+if train:
+    plt.plot(epochs, train,marker='o',color='C0', label="train", **plot_kwargs)
+    plt.plot(epochs, test,marker='s',color='tomato',label="test", **plot_kwargs)
+    plt.xlabel("epoch", fontsize=18)
+    plt.ylabel("accuracy", fontsize=18)
+    plt.gca().tick_params(labelsize=15)
+    plt.gca().grid(1)
+    plt.legend(prop={"size": 15})
 
 
 plt.subplot(122)
