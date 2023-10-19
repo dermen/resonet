@@ -38,13 +38,14 @@ def d_to_dnew(d):
         return dnew
 
 
+from resonet.utils.mlp_fit import CurveFitMLP
 
 
 class ImagePredict:
 
     def __init__(self, reso_model=None, multi_model=None, ice_model=None, counts_model=None,
                  reso_arch=None, multi_arch=None, ice_arch=None, counts_arch=None,
-                 dev="cpu", use_modern_reso=True):
+                 dev="cpu", use_modern_reso=True, B_to_d=None):
         """
 
         Parameters
@@ -59,6 +60,7 @@ class ImagePredict:
         counts_arch: spot count model arch
         dev: device string (e.g. 'cpu' or 'cuda:0')
         use_modern_reso: bool, whether to use the d_to_dnew method to alter resolution
+        B_to_d: str, path to the MLP model for estimating reso from B factor
         """
         self.pixels = None  # this is the image tensor, a (512x512) representation of the diffraction shot
         self.counts_pixels = None  # downsampled tensor representation of the entire image
@@ -69,6 +71,8 @@ class ImagePredict:
         self._try_load_model("multi", multi_model, multi_arch, load_model)
         self._try_load_model("ice", ice_model, ice_arch, load_model)
         self._try_load_model("counts", counts_model, counts_arch, load_count_model)
+        self._try_load_B_to_d(B_to_d)
+
         self._geom_props = ["detdist_mm", "pixsize_mm", "wavelen_Angstrom", "xdim", "ydim"]
         self.mask = None
 
@@ -78,6 +82,13 @@ class ImagePredict:
         self.maxpool_eiger_counts = mx_gamma(self._dev, stride=5)
         self.allowed_quads = {0: "A", 1: "B", 2: "C", 3: "D"}
         self.quads = [1]
+        self.gain = 1  # adu per photon
+
+    def _try_load_B_to_d(self, path):
+        """path: saved MLP model for estimating reso from Bfactor"""
+        self.B_to_d_model = None
+        if path is not None:
+            self.B_to_d_model = CurveFitMLP.load_model(path)
 
     def _try_load_model(self, model_name, model_path, model_arch, method):
         """
@@ -112,7 +123,6 @@ class ImagePredict:
     @counts_pixels.setter
     def counts_pixels(self, val):
         self._counts_pixels = val
-
 
     @property
     def geom(self):
@@ -163,6 +173,15 @@ class ImagePredict:
         self._ydim = val
 
     @property
+    def gain(self):
+        return self._gain
+
+    @gain.setter
+    def gain(self, val):
+        assert val > 0
+        self._gain = val
+
+    @property
     def quads(self):
         return self._quads
 
@@ -196,7 +215,7 @@ class ImagePredict:
             dwnsamp = 4
         tensors = []
         for quad in self.quads:
-            tens = to_tens(raw_img, self.mask, maxpool=maxpool,
+            tens = to_tens(raw_img/self.gain, self.mask, maxpool=maxpool,
                            ds_fact=dwnsamp, quad=quad, dev=self._dev)
             tensors.append(tens)
         self.pixels = torch.concatenate(tensors)
@@ -205,13 +224,7 @@ class ImagePredict:
             mx = self.maxpool_pilatus_counts
             if not is_pil:
                 mx = self.maxpool_eiger_counts
-            if self.mask is not None:
-                if self.mask.shape != raw_img.shape:
-                    raise ValueError("self.mask and raw_img have shape mismatch!")
-                im = raw_img*self.mask
-            else:
-                im = raw_img
-            self.counts_pixels = process_image(im, cond_meth=mx,
+            self.counts_pixels = process_image(raw_img/self.gain*self.mask, cond_meth=mx,
                                        useSqrt=True, dev=self._dev)[None]
 
     def _set_default_mask(self, raw_img):
@@ -220,7 +233,7 @@ class ImagePredict:
             mask = ~binary_dilation(~mask, iterations=1)
             self.mask = mask
 
-    def detect_resolution(self):
+    def detect_resolution(self, use_min=True):
         """
         :return: an estimate of the crystal resolution in Angstroms
         """
@@ -228,10 +241,22 @@ class ImagePredict:
         self._check_geom()
         self._check_model("reso")
         one_over_reso = self.reso_model(self.pixels, self.geom)
-        reso = torch.min(1/one_over_reso).item()
-        if self.use_modern_reso:
+        if use_min:
+            reso = torch.min(1/one_over_reso).item()
+        else:
+            reso = torch.mean(1/one_over_reso).item()
+
+        if self.B_to_d_model is not None:
+            reso = self.d_from_MLP(reso)
+        elif self.use_modern_reso:
             reso = d_to_dnew(reso)
         return reso
+
+    def d_from_MLP(self, d):
+        B = 4 * d ** 2 + 12  # Holton 2009 model
+        B = torch.tensor([[B]])
+        d = self.B_to_d_model(B).item()
+        return d
 
     def count_spots(self):
         """

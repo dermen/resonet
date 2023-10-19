@@ -33,7 +33,7 @@ import dxtbx
 import glob
 import re
 import os
-from resonet.utils.eval_model import load_model, raw_img_to_tens_pil, raw_img_to_tens
+from resonet.utils.eval_model import load_model, raw_ismg_to_tens_pil, raw_img_to_tens
 from resonet.utils import eval_model
 from resonet.sims.simulator import reso2radius
 import pylab as plt

@@ -24,13 +24,14 @@ parser.add_argument("--figdir", default=None, type=str,
                     help="A directory for PNG files to be written to. "
                          "Default: tempfigs_X where X is a string representing resolution")
 parser.add_argument("--display", action="store_true")
+parser.add_argument("--gpus", action="store_true")
 args = parser.parse_args()
 
 model = load_model(args.modelname, args.arch)
 
-fnames = glob.glob(args.datadir + "/*mccd")
+fnames = glob.glob(args.datadir + "/*_[0-9]_*mccd")
 if not fnames:
-    fnames = glob.glob(args.datadir + "/*cbf")
+    fnames = glob.glob(args.datadir + "/*_[0-9]_*cbf")
 
 
 def sanitize_inputs(fnames):
@@ -69,6 +70,13 @@ if COMM.rank==0:
 #    figdir = args.outfile + ".resultfigs"
 #if COMM.rank==0 and not os.path.exists(figdir):
 #    os.makedirs(figdir)
+from resonet.utils import mpi
+dev = "cpu"
+if args.gpus:
+    gpu_id = mpi.get_gpu_id_mem(1)
+    dev = "cuda:%d" % gpu_id
+    model = model.to(dev)
+
 COMM.barrier()
 rank_fnames = []
 rank_fignames = []
@@ -77,25 +85,41 @@ labels = []
 read_times = []
 predict_times = []
 ds_times = []
+from resonet.utils import eval_model
+
+factor = 2 if is_pil else 4
+maxpool = torch.nn.MaxPool2d(factor, factor)
+kwargs = {}
+kwargs["dev"] = dev
+kwargs["maxpool"] = maxpool
+kwargs["ds_fact"] = factor
+kwargs["cent"] = xdim / 2., ydim / 2.
+
 for i_f, f in enumerate(fnames):
     if i_f % COMM.size != COMM.rank: continue
     t = time.time()
-    loader = dxtbx.load(f)
-    img = loader.get_raw_data().as_numpy_array() / args.gain
+    try:
+        loader = dxtbx.load(f)
+    except:
+        continue
+    img = loader.get_raw_data().as_numpy_array().astype(np.float32) / args.gain
     t = time.time()-t
     read_times.append(t)
     t2 = time.time()
-    if is_pil:
-        tens = raw_img_to_tens_pil(img, mask)
-    else:
-        if xdim == 4096:  # is MAR (note, depends on binning
-            tens = raw_img_to_tens_mar(img, mask)
-        else:
-            tens = raw_img_to_tens(img, mask)
+    tens = eval_model.to_tens(img, mask, quad="A", **kwargs)
+    #if is_pil:
+    #    tens = raw_img_to_tens_pil(img, mask)
+    #else:
+    #    if xdim == 4096:  # is MAR (note, depends on binning
+    #        tens = raw_img_to_tens_mar(img, mask)
+    #    else:
+    #        tens = raw_img_to_tens(img, mask)
     t2 = time.time()-t2
     ds_times.append(t2)
 
     t3 = time.time()
+    tens = tens.to(dev)
+    assert dev.startswith("cuda")
     raw_prediction = torch.sigmoid(model(tens))
     is_multi = int(torch.round(raw_prediction).item())
     t3 = time.time()-t3
@@ -107,11 +131,11 @@ for i_f, f in enumerate(fnames):
     
     rank_fnames.append(f)
     #plt.cla()
-    tens_im = tens.numpy()[0,0,:512, :512]
-    m = tens_im.mean()
-    s = tens_im.std()
-    vmax = m+3*s
-    vmin = m-2
+    #tens_im = tens.numpy()[0,0,:512, :512]
+    #m = tens_im.mean()
+    #s = tens_im.std()
+    #vmax = m+3*s
+    #vmin = m-2
     #plt.imshow(tens.numpy()[0, 0, :512, :512], vmax=vmax, vmin=vmin)
     tag = "multi" if is_multi else "single"
     #plt.title("%s: %s" % (os.path.basename(f), tag))
