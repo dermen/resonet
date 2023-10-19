@@ -32,6 +32,7 @@ DOMAINSIZE_MM = 5e-5
 VOL = (XTALSIZE_MM / DOMAINSIZE_MM)**3  # scales the diffraction
 FIX_RES = None # 0.5/.29989  # optionally fix the resolution for all simulations ...
 
+CUT_1P2 = False  # try loading the 1p2 fmodel files (assuming they were created). This is simply the original fmodel files cut at 1.2 Angstrom, and should significantly speed up throughput
 
 # these are the PDB folders containing pdb files and P1.hkl files
 RANDOM_PDBS = [d for d in glob.glob(os.path.join(dirname, "pdbs/*")) if len(os.path.basename(d))==4 and os.path.isdir(d)]

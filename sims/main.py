@@ -36,6 +36,9 @@ def args(use_joblib=False):
     parser.add_argument("--varyBgScale", action="store_true", help="if true, vary background scale by factor in range 0.05-1.5")
     parser.add_argument("--beamStop", action="store_true", help="if true, add a random beamstop mask to each simulated shot")
     parser.add_argument("--randDist", action="store_true", help="randomize the detector distance")
+    parser.add_argument("--randDistRange", nargs=2, type=float, default=[200,300], help="If --randDist, and if --randDistChoice is not provided, then detdist will be drawn uniformly in this range for each shot")
+    parser.add_argument("--randDistChoice", default=None, nargs="+", type=float, help="If provided, and if --randDist, then detdist will be chosen randomly for each shot from these values (default is None)")
+    parser.add_argument("--randWaveRange", nargs=2, type=float, default=[10000,13000], help="if randWave, then energies will be drawn uniformly in this range for each shots wavelength")
     parser.add_argument("--randCent", action="store_true", help="randomize the beam center")
     parser.add_argument("--randWave", action="store_true", help="randomize the beam wavelength")
     parser.add_argument("--randScale", action="store_true", help="randomize the crystal domain size")
@@ -180,6 +183,20 @@ def run(args, seeds, jid, njobs):
         # list of rotation matrices (length is Nshot)
         rotMats = Rotation.random(Nshot).as_matrix()
         times = []  # store processing times per shot
+
+        # random generators
+        random_dist = random_wave = None
+        if args.randDist:
+            if args.randDistChoice is not None:
+                random_dist = lambda: np.random.choice(args.randDistChoice)
+            else:
+                d1,d2 = args.randDistRange
+                assert d1 < d2
+                random_dist = lambda: np.random.uniform(d1,d2)
+        if args.randWave:
+            en1, en2 = args.randWaveRange
+            assert en1 < en2
+            random_wave = lambda: np.random.uniform(en1, en2)
         for i_shot in range(Nshot):
             t = time.time()
             params, img = HS.simulate(rot_mat=rotMats[i_shot],
@@ -188,9 +205,9 @@ def run(args, seeds, jid, njobs):
                                       max_lat=args.maxLat,
                                       dev=dev, mos_dom_override=args.nmos,
                                       vary_background_scale=args.varyBgScale,
-                                      randomize_dist=args.randDist,
+                                      randomize_dist=random_dist,
                                       randomize_center=args.randCent,
-                                      randomize_wavelen=args.randWave,
+                                      randomize_wavelen=random_wave,
                                       randomize_scale=args.randScale,
                                       low_bg_chance=args.lowBgChance,
                                       uniform_reso=args.uniReso)

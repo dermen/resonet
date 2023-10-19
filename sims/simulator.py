@@ -30,7 +30,7 @@ class Simulator:
 
     def simulate(self, rot_mat=None, multi_lattice_chance=0, max_lat=2, mos_min_max=None,
                  pdb_name=None, plastic_stol=None, dev=0, mos_dom_override=None, vary_background_scale=False,
-                 randomize_dist=False, randomize_wavelen=False, randomize_center=False,
+                 randomize_dist=None, randomize_wavelen=None, randomize_center=False,
                  randomize_scale=False, low_bg_chance=0, uniform_reso=False, roi=None,
                  old_multi_spread=True):
         """
@@ -43,8 +43,8 @@ class Simulator:
         :param plastic_stol: path to the plastic `sin theta over lambda` file (debug purposes only)
         :param dev: device id (number from 0 to N-1 where N is number of nvidia GPUs available (run nvidia-smi to check)
         :param mos_dom_override: number of mosaic blocks to simulate. If not, will be determined via make_sims.choose_mos function.
-        :param randomize_dist: randomize the detector distance
-        :param randomize_wavelen: randomize the wavelength
+        :param randomize_dist: a function that returns a randomized detector distance
+        :param randomize_wavelen: a function that returns a randomized beam energy
         :param randomize_center: randomize the beam center
         :param randomize_scale: randomize the crystal domain size
         :param low_bg_chance: probability to simulate a low backgroun shot
@@ -59,7 +59,7 @@ class Simulator:
         crystal_scale = 1
         if randomize_scale:
             crystal_scale = np.random.choice([1,1,1,1,2,2,3])
-        C = make_crystal.load_crystal(pdb_name, rot_mat, crystal_scale)
+        C = make_crystal.load_crystal(pdb_name, rot_mat, crystal_scale, cut_1p2=paths_and_const.CUT_1P2)
         mos_min = mos_max = None  # will default to values in paths_and_const.py
         if mos_min_max is not None:
             mos_min, mos_max = mos_min_max
@@ -77,17 +77,21 @@ class Simulator:
         S = sim_data.SimData()
         S.crystal = C
 
-        if randomize_dist or randomize_center or randomize_wavelen:
+        if randomize_dist is not None or randomize_center or randomize_wavelen is not None:
             shot_beam = deepcopy(self.BEAM)
-            if randomize_wavelen:
-                energy_ev = np.random.uniform(10000,13000)
+            if randomize_wavelen is not None:
+                energy_ev = randomize_wavelen()
+                #energy_ev = np.random.uniform(9350, 9550)
+                #energy_ev = np.random.uniform(10000,13000)
                 shot_wavelen = ENERGY_CONV / energy_ev
                 shot_beam.set_wavelength(shot_wavelen)
 
             shot_det = deepcopy(self.DET)
-            if randomize_dist:
+            if randomize_dist is not None:
                 curr_dist = self.DET[0].get_distance()
-                new_dist = np.random.uniform(200, 350)
+                new_dist = randomize_dist()
+                #new_dist = np.random.choice([93, 106, 80, 60])
+                #new_dist = np.random.uniform(200, 350)
                 dist_shift = new_dist - curr_dist
                 shot_det = shift_distance(shot_det, dist_shift)
 
