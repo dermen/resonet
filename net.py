@@ -112,7 +112,7 @@ def validate(input_tens, model, epoch, criterion, COMM=None, error = 0.3):
     all_lab = []
     all_pred = []
     all_loss = []
-    for i,tensors in enumerate(input_tens):
+    for i, tensors in enumerate(input_tens):
         data = (tensors[0],)
         labels = tensors[1]
         if len(tensors)==3:
@@ -151,7 +151,9 @@ def validate(input_tens, model, epoch, criterion, COMM=None, error = 0.3):
 
     if ori_mode:
         acc = nacc / total *100
-        ave_loss = np.mean(all_loss)
+        ave_loss = np.mean(all_loss) * 180 / np.pi  # convert to degrees
+        logger.info("\taccuracy at Ep%d: %.2f%%" \
+                    % (epoch+1, acc))
         return acc, ave_loss, all_lab, all_pred
 
     elif not using_bce:
@@ -340,6 +342,8 @@ def do_training(h5input, h5label, h5imgs, outdir,
         nety.load_state_dict(cp["model_state"])
         nety = nety.to(all_imgs.dev)
 
+    nety.ori_mode = ori_mode
+
     if COMM is not None:
         nety = torch.nn.SyncBatchNorm.convert_sync_batchnorm(nety)
         nety = nn.parallel.DistributedDataParallel(nety, device_ids=[gpuid], 
@@ -347,8 +351,6 @@ def do_training(h5input, h5label, h5imgs, outdir,
     if half_precision:
         print("Moving model to half precision")
         nety = nety.half()
-
-    nety.ori_mode = ori_mode
 
     criterion = LOSSES[loss]()
     if ori_mode:

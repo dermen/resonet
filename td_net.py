@@ -31,4 +31,5 @@ net.do_training(args.input, args.labelName, args.imgsName, args.outdir,
             display=not args.noDisplay, save_freq=args.saveFreq,
             COMM=COMM, ngpu_per_node=ngpu_per_node,
             use_geom=args.useGeom, weights=args.weights, error=args.error,
-            use_transform=args.transform, eval_mode_only=not args.noEvalOnly)
+            use_transform=args.transform, eval_mode_only=not args.noEvalOnly,
+            debug_mode=args.debugMode, ori_mode=args.oriMode)
