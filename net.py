@@ -262,7 +262,7 @@ def _train_iter(data, labels, model, criterion, optimizer):
 
 
 def do_training(h5input, h5label, h5imgs, outdir,
-                lr=1e-3, bs=16, max_ep=100, momentum=0.9,
+         lr=1e-3, bs=16, max_ep=100, momentum=0.9,
          weight_decay=0, dropout=False,
          nesterov=False, damp=0,
          arch="res50", loss="L1", dev="cuda:0",
@@ -368,6 +368,10 @@ def do_training(h5input, h5label, h5imgs, outdir,
         logger.critical(cmdline)
     else:
         logger = get_logger(do_nothing=True)
+    for arg_name, arg_val in training_args:
+        arg_s = "%s=%s" % (arg_name, str(arg_val))
+        logger.info("Training arg %s" % arg_s)
+
     logger.info("Training for %d outputs" % all_imgs.nlab)
 
     if COMM is None or COMM.rank==0:
