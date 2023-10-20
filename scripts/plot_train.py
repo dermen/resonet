@@ -43,8 +43,9 @@ plot_kwargs = {'ms':6, 'ls':'-', 'lw': 2, }
 
 plt.subplot(121)
 if train:
-    plt.plot(epochs, train,marker='o',color='C0', label="train", **plot_kwargs)
-    plt.plot(epochs, test,marker='s',color='tomato',label="test", **plot_kwargs)
+    n = min(len(epochs), len(train), len(test))
+    plt.plot(epochs[:n], train[:n],marker='o',color='C0', label="train", **plot_kwargs)
+    plt.plot(epochs[:n], test[:n],marker='s',color='tomato',label="test", **plot_kwargs)
     plt.xlabel("epoch", fontsize=18)
     plt.ylabel("accuracy", fontsize=18)
     plt.gca().tick_params(labelsize=15)
