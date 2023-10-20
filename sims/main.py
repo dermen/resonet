@@ -42,9 +42,11 @@ def args(use_joblib=False):
     parser.add_argument("--randCent", action="store_true", help="randomize the beam center")
     parser.add_argument("--randWave", action="store_true", help="randomize the beam wavelength")
     parser.add_argument("--randScale", action="store_true", help="randomize the crystal domain size")
+    parser.add_argument("--beamRotOnly", action="store_true", help="Rotate the crystals about the beam only (as a control)")
     parser.add_argument("--expt", type=str)
     parser.add_argument("--mask", type=str)
     parser.add_argument("--maskFileList", type=str)
+    parser.add_argument("--pdbName", type=str, default=None, help="if provided all simulations will use crystal model from this PDB")
     parser.add_argument("--lowBgChance", type=float, default=0, help="probability to simulate a log background shot (default=0)")
     parser.add_argument("--uniReso", action="store_true", help="uniformly sample resolution per shot, up to the detector maximum")
     parser.add_argument("--randQuad", action="store_true", help="randomly choose a quad to write per image")
@@ -79,8 +81,6 @@ def run(args, seeds, jid, njobs):
     from scipy.ndimage import binary_dilation
 
     from resonet.sims.simulator import Simulator, reso2radius
-    from resonet.utils import eval_model, maxbin
-    IMAX = np.iinfo(np.uint8).max
 
     np.random.seed(seeds[jid])
 
@@ -181,7 +181,13 @@ def run(args, seeds, jid, njobs):
         geom_dset.attrs["names"] = geom_names
 
         # list of rotation matrices (length is Nshot)
-        rotMats = Rotation.random(Nshot).as_matrix()
+        if args.beamRotOnly:
+            angle = np.random.uniform(-180,180,Nshot)
+            rot_vecs = np.zeros((Nshot, 3))
+            rot_vecs[:,2] = angle
+            rotMats = Rotation.from_rotvec(rot_vecs, degrees=True).as_matrix()
+        else:
+            rotMats = Rotation.random(Nshot).as_matrix()
         times = []  # store processing times per shot
 
         # random generators
@@ -205,6 +211,7 @@ def run(args, seeds, jid, njobs):
                                       max_lat=args.maxLat,
                                       dev=dev, mos_dom_override=args.nmos,
                                       vary_background_scale=args.varyBgScale,
+                                      pdb_name=args.pdbName,
                                       randomize_dist=random_dist,
                                       randomize_center=args.randCent,
                                       randomize_wavelen=random_wave,
@@ -315,13 +322,6 @@ def run(args, seeds, jid, njobs):
 
             if args.saveRaw:
                 raw_dset[i_shot] = img
-            #maximg = maxbin.maximg_downsample(img*shot_mask, factor)
-            # normalize and convert
-            #maximg[maximg < 0] = 0
-            #maximg = np.sqrt(maximg)
-            #maximg[maximg > IMAX] = IMAX
-            #maximg = maximg.astype(np.float32)
-            #maximg_dset[i_shot] = maximg
 
             dset[i_shot] =ds_img
             geom_dset[i_shot] = geom_array

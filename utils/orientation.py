@@ -49,6 +49,7 @@ def gs_mapping(vecs):
     b2 = u2 / u2_norm[:,None]
 
     b3 = batch_cross(b1, b2)
+    #b3 = torch.cross( b1, b2)
 
     rot_mat_elems = torch.hstack((b1, b2, b3))
 
@@ -67,7 +68,7 @@ def gs_mapping(vecs):
     return rot_mat_elems.view(-1,3,3).transpose(1,2)
 
 
-def loss(model_rots, gt_rots, reduce=True):
+def loss(model_rots, gt_rots, reduce=True, sgnums=None):
     """
     Below, `N` stands for batch size
     :param model_rots: output of the ori_mode=True model (N x 9) tensor
@@ -75,22 +76,72 @@ def loss(model_rots, gt_rots, reduce=True):
     :param reduce: whether to return the summed loss, or one per example
     :return:
     """
-    #debug(model_rots,1)
-    #model_rots = model_rots.reshape((-1, 3, 3))
-    #model_rots = torch.transpose(model_rots, dim0=1, dim1=2)
-    #gt_rots = gt_rots.reshape((-1, 3, 3)).transpose(dim0=1,dim1=2)
-
     mat_prod = torch.bmm(model_rots, gt_rots.reshape((-1, 3, 3)).transpose(1, 2))
-    #debug(mat_prod,2)
-
     diags = torch.diagonal(mat_prod, dim1=2, dim2=1)
-    #debug(diags,3)
-
     traces = .5*diags.sum(1)-.5
-    #debug(traces, 4)
     loss = torch.arccos(torch.clamp( traces, -1+1e-6, 1-1e-6))
-    #debug(loss, 5)
     if reduce:
         loss = loss.mean()
     return loss
 
+
+class Loss(torch.nn.Module):
+    def __init__(self, sgop_table, symbol_to_num, dev, *args, **kwargs):
+        """
+        :param sgop_table:
+        :param symbol_to_num:
+        """
+        super().__init__(*args, **kwargs)
+        self.Nop = max([len(v) for v in sgop_table.values()])
+        self.Nsym = len(sgop_table)
+        self.sgops = np.zeros((self.Nsym, self.Nop, 3, 3))
+        self.sgops[:, :] = np.eye(3)  # default is the Identity
+        for sym in sgop_table:
+            rots = sgop_table[sym]
+            idx = symbol_to_num[sym]
+            self.sgops[idx, :len(rots)] = rots
+        self.sgops = torch.tensor(self.sgops.astype(np.float32), device=dev)
+
+    def forward(self, model_rots, gt_rots, reduce=True, sgnums=None):
+        """
+        Below, `N` stands for batch size
+        :param model_rots: output of the ori_mode=True model (N x 9) tensor
+        :param gt_rots: ground truth orientations (N x 9) tensor
+        :param reduce: whether to return the summed loss, or one per example
+        :return:
+        """
+        if sgnums is not None:
+            # sgnums is list of ints e.g. 0, 1, 1, 2, 4, 24, ..
+            # model_rots is Nbatch x  3x  3
+            # rots is Nbatch x Nop x 3 x 3
+            #
+            rots = self.sgops[sgnums]
+            model_rots_op = torch.matmul(rots, model_rots[:,None])
+            G = gt_rots.reshape((-1,3,3)).transpose(1,2)
+            mat_prod = torch.matmul(model_rots_op, G[:,None])
+            diags = torch.diagonal(mat_prod, dim1=3, dim2=2)
+            traces = .5 * diags.sum(2) - .5
+            loss = torch.arccos(torch.clamp(traces, -1 + 1e-6, 1 - 1e-6))
+            loss = loss.min(1).values
+
+            #rots = self.sgop_table[sgnums]  # Nbatch x Nops x 3 x 3
+            #for i_op in range(len(rots)):
+            #    model_rots_op = torch.matmul(rots[:, i_op], model_rots)  # Nbatch x 3 x 3
+            #    mat_prod = torch.bmm(model_rots_op, gt_rots.reshape((-1, 3, 3)).transpose(1, 2))
+            #    diags = torch.diagonal(mat_prod, dim1=2, dim2=1)
+            #    traces = .5*diags.sum(1)-.5
+            #    loss_i = torch.arccos(torch.clamp(traces, -1+1e-6, 1-1e-6))
+            #    if i_op == 0:
+            #        loss = loss_i
+            #    else:
+            #        loss = torch.minimum(loss, loss_i)
+
+        else:
+            mat_prod = torch.bmm(model_rots, gt_rots.reshape((-1, 3, 3)).transpose(1, 2))
+            diags = torch.diagonal(mat_prod, dim1=2, dim2=1)
+            traces = .5*diags.sum(1)-.5
+            loss = torch.arccos(torch.clamp(traces, -1+1e-6, 1-1e-6))
+
+        if reduce:
+            loss = loss.mean()
+        return loss

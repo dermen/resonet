@@ -29,6 +29,7 @@ def get_parser():
     parser.add_argument("--nesterov", action="store_true",
                         help="use nesterov momentum (SGD)")
     parser.add_argument("--damp", type=float, default=0, help="dampening (SGD)")
+    parser.add_argument("--useSGNums", action="store_true", help="Along with each image data loaders will provide space group numbers (only used to oriMode=True fits)")
     parser.add_argument("--useGeom", action="store_true",
                         help="if geom is included as a dataset in the input file, use it for training")
     parser.add_argument("--error", type=float, default=0.07, help="the error threshold the model consider accurate")
@@ -98,14 +99,15 @@ def get_logger(filename=None, level="info", do_nothing=False):
     return logger
 
 
-def validate(input_tens, model, epoch, criterion, COMM=None, error = 0.3):
+def validate(input_tens, model, epoch, criterion, COMM=None, error=0.3):
     """
     tens is return value of tensorloader
     TODO make validation multi-channel (e.g. average accuracy over all labels)
     """
     logger = logging.getLogger("resonet")
     using_bce = str(criterion).startswith("BCE")
-    ori_mode = criterion.__module__ == 'resonet.utils.orientation'
+    ori_loss = criterion.__module__ == 'resonet.utils.orientation'
+    use_sgnums = ori_loss and str(criterion) == "Loss()"
 
     total = 0
     nacc = 0  # number of accurate predictions
@@ -115,21 +117,36 @@ def validate(input_tens, model, epoch, criterion, COMM=None, error = 0.3):
     for i, tensors in enumerate(input_tens):
         data = (tensors[0],)
         labels = tensors[1]
+        sgnums = None
         if len(tensors)==3:
-            data = data + (tensors[2],)
+            if not use_sgnums:
+                data = data + (tensors[2],)
+            else:
+                sgnums = tensors[2]
         if COMM is None or COMM.rank==0:
             print("validation batch %d"% i,end="\r", flush=True)
         pred = model(*data)
 
-        loss = criterion(pred, labels)
+        if len(pred.shape)==3 and not ori_loss:
+            nbatch = pred.shape[0]
+            pred = pred.reshape((nbatch, -1))
+        if ori_loss:
+            if sgnums is not None:
+                loss_per = criterion(pred, labels, reduce=False, sgnums=sgnums)
+            else:
+                loss_per = criterion(pred, labels, reduce=False)
+            loss = loss_per.mean()
+        else:
+            loss = criterion(pred, labels)
+
         all_loss.append(loss.item())
 
         if using_bce:
             pred = torch.round(torch.sigmoid(pred))
         else:
-            if ori_mode:
-                # this is the ori_mode=True case
-                errors = orientation.loss(pred, labels, reduce=False)[:,None]
+            if ori_loss:
+                # this is the ori_loss=True case
+                errors = loss_per[:, None] #orientation.loss(pred, labels, reduce=False)[:,None]
             else:
                 errors = (pred-labels).abs()
             is_accurate = errors < error
@@ -149,7 +166,7 @@ def validate(input_tens, model, epoch, criterion, COMM=None, error = 0.3):
     all_lab = np.array(all_lab).T
     all_pred = np.array(all_pred).T
 
-    if ori_mode:
+    if ori_loss:
         acc = nacc / total *100
         ave_loss = np.mean(all_loss) * 180 / np.pi  # convert to degrees
         logger.info("\taccuracy at Ep%d: %.2f%%" \
@@ -158,13 +175,13 @@ def validate(input_tens, model, epoch, criterion, COMM=None, error = 0.3):
 
     elif not using_bce:
         acc = nacc / total*100.
-        pears = [pearsonr(L,P)[0] for L,P in zip(all_lab, all_pred)]
-        spears = [spearmanr(L,P)[0] for L,P in zip(all_lab, all_pred)]
-        logger.info("\taccuracy at Ep%d: %.2f%%" \
-            % (epoch+1, acc))
-        for pear, spear in zip(pears, spears):
-            logger.info("\tpredicted-VS-truth: PearsonR=%.3f%%, SpearmanR=%.3f%%" \
-                % (pear*100, spear*100))
+        #pears = [pearsonr(L,P)[0] for L,P in zip(all_lab, all_pred)]
+        #spears = [spearmanr(L,P)[0] for L,P in zip(all_lab, all_pred)]
+        #logger.info("\taccuracy at Ep%d: %.2f%%" \
+        #    % (epoch+1, acc))
+        #for pear, spear in zip(pears, spears):
+        #    logger.info("\tpredicted-VS-truth: PearsonR=%.3f%%, SpearmanR=%.3f%%" \
+        #        % (pear*100, spear*100))
         ave_loss = np.mean(all_loss)
         return acc, ave_loss, all_lab, all_pred
     else:
@@ -248,17 +265,26 @@ def update_plots(ax0,ax1, epoch):
     ax1.legend(prop={"size":12})
 
 
-def _train_iter(data, labels, model, criterion, optimizer):
+def _train_iter(data, labels, model, criterion, optimizer, sgnums=None):
     """
     :param data: data tensor
     :param labels: label tensor
     :param model: pytorch model
     :param criterion: pytorch loss
     :param optimizer: pytorch optimizer
+    :param sgnums:
     """
+
+    ori_loss = criterion.__module__ == 'resonet.utils.orientation'
     optimizer.zero_grad()
     outputs = model(*data)
-    loss = criterion(outputs, labels)
+    if len(outputs.shape) == 3 and not ori_loss:
+        nbatch = outputs.shape[0]
+        outputs = outputs.reshape((nbatch, -1))
+    if ori_loss and sgnums is not None:
+        loss = criterion(outputs, labels, sgnums=sgnums)
+    else:
+        loss = criterion(outputs, labels)
     loss.backward()
     optimizer.step()
 
@@ -274,7 +300,8 @@ def do_training(h5input, h5label, h5imgs, outdir,
          label_sel=None, half_precision=False,
          title=None, COMM=None, ngpu_per_node=1, use_geom=False,
          error=0.3, weights=None, use_transform=False,
-         cp=None, ori_mode=False, eval_mode_only=True, debug_mode=False):
+         cp=None, ori_mode=False, eval_mode_only=True, debug_mode=False,
+         use_sgnums=False):
 
     training_args = list(locals().items())
     # model and criterion choices
@@ -319,7 +346,8 @@ def do_training(h5input, h5label, h5imgs, outdir,
 
     common_args = {"dev":dev,"labels": h5label, "images": h5imgs,
                    "use_geom": use_geom, "label_sel": label_sel,
-                   "half_precision": half_precision}
+                   "half_precision": half_precision,
+                   "use_sgnums": use_sgnums}
 
     all_imgs = H5SimDataDset(h5input,
                                start=0, stop=ntrain + ntest, transform=transform, **common_args)
@@ -354,8 +382,15 @@ def do_training(h5input, h5label, h5imgs, outdir,
 
     criterion = LOSSES[loss]()
     if ori_mode:
-        criterion = orientation.loss
+        if use_sgnums:
+            # we need to provide to data stuctures that were created in the datasets above
+            criterion = orientation.Loss(sgop_table=all_imgs.sgop_table,
+                                         symbol_to_num=all_imgs.symbol_to_num,
+                                         dev=all_imgs.dev)
+        else:
+            criterion = orientation.loss
     optimizer = optim.SGD(nety.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay, nesterov=nesterov, dampening=damp )
+    #optimizer = optim.Adam(nety.parameters(), lr=lr)
     if cp is not None:
         optimizer.load_state_dict(cp["optimizer_state"])
 
@@ -381,7 +416,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
         if title is None:
             title = os.path.join(os.path.basename(os.path.dirname(h5input)), 
                         os.path.basename(h5input))
-        fig, (ax0, ax1) = setup_subplots(title)
+        #fig, (ax0, ax1) = setup_subplots(title)
 
     nety.train()
     mx_acc = 0
@@ -421,9 +456,9 @@ def do_training(h5input, h5label, h5imgs, outdir,
         losses = []
         all_losses = []
 
-        if display and (COMM is None or COMM.rank==0):
-            plt.draw()
-            plt.pause(0.01)
+        #if display and (COMM is None or COMM.rank==0):
+        #    plt.draw()
+        #    plt.pause(0.01)
         
         if COMM is not None:  # or if train_tens.sampler is not None
             train_tens.sampler.set_epoch(epoch)
@@ -431,17 +466,21 @@ def do_training(h5input, h5label, h5imgs, outdir,
         for i, tensors in enumerate(train_tens):
             data = (tensors[0],)
             labels = tensors[1]
+            sgnums = None
             if len(tensors) == 3:
-                data = data + (tensors[2],)
+                if use_geom:
+                    data = data + (tensors[2],)
+                else:
+                    sgnums = tensors[2]
 
             if COMM is None or COMM.rank==0:
                 print("Training Epoch %d batch %d/%d" \
                     % (epoch+1, i+1, nbatch), flush=True)
             if debug_mode:
                 with torch.autograd.detect_anomaly():
-                    _train_iter(data, labels, nety, criterion, optimizer)
+                    _train_iter(data, labels, nety, criterion, optimizer, sgnums)
             else:
-                _train_iter(data, labels, nety, criterion, optimizer)
+                _train_iter(data, labels, nety, criterion, optimizer, sgnums)
 
         ttrain = time.time()-t0
         if COMM is None or COMM.rank==0:
@@ -460,21 +499,21 @@ def do_training(h5input, h5label, h5imgs, outdir,
 
             mx_acc = max(acc, mx_acc)
 
-            try:
-                if COMM is None or COMM.rank==0:
-                    plot_acc(ax0, 0, test_loss, epoch, starting_ep)
-                    plot_acc(ax0, 1, train_loss, epoch, starting_ep)
-                    plot_acc(ax0, 2, train_loss, epoch, starting_ep)
-                    plot_acc(ax1, 0, acc, epoch, starting_ep)
-                    plot_acc(ax1, 1, train_acc, epoch, starting_ep)
+            #try:
+            #    if COMM is None or COMM.rank==0:
+            #        plot_acc(ax0, 0, test_loss, epoch, starting_ep)
+            #        plot_acc(ax0, 1, train_loss, epoch, starting_ep)
+            #        plot_acc(ax0, 2, train_loss, epoch, starting_ep)
+            #        plot_acc(ax1, 0, acc, epoch, starting_ep)
+            #        plot_acc(ax1, 1, train_acc, epoch, starting_ep)
 
-                    update_plots(ax0,ax1, epoch)
+            #        update_plots(ax0,ax1, epoch)
 
-                    if display:
-                        plt.draw()
-                        plt.pause(0.3)
-            except Exception as err:
-                pass
+            #        if display:
+            #            plt.draw()
+            #            plt.pause(0.3)
+            #except Exception as err:
+            #    pass
 
         # <><><><><><><><
         #  End Validation
@@ -484,8 +523,8 @@ def do_training(h5input, h5label, h5imgs, outdir,
         if (epoch+1)%save_freq==0 and (COMM is None or COMM.rank==0):
             outname = os.path.join(outdir, "nety_ep%d.nn"%(epoch+1))
             torch.save(nety.state_dict(), outname)
-            plt.savefig(outname.replace(".nn", "_train.png"))
-            save_results_fig(outname, test_lab, test_pred)
+            #plt.savefig(outname.replace(".nn", "_train.png"))
+            #save_results_fig(outname, test_lab, test_pred)
             if True: #False:# save_cps:
                 restart_file = outname.replace(".nn", ".chkpt")
                 save_checkpoint(restart_file,
@@ -495,8 +534,8 @@ def do_training(h5input, h5label, h5imgs, outdir,
     if COMM is None or COMM.rank==0:
         outname = os.path.join(outdir, "nety_epLast.nn")
         torch.save(nety.state_dict(), outname)
-        plt.savefig(outname.replace(".nn", "_train.png"))
-        save_results_fig(outname, test_lab, test_pred)
+        #plt.savefig(outname.replace(".nn", "_train.png"))
+        #save_results_fig(outname, test_lab, test_pred)
         restart_file = outname.replace(".nn", ".chkpt")
         save_checkpoint(restart_file,
                         epoch, nety, optimizer, train_loss, training_args)
@@ -542,7 +581,8 @@ if __name__ == "__main__":
                 display=not args.noDisplay, save_freq=args.saveFreq,
                 use_geom=args.useGeom, error=args.error, weights=args.weights,
                 use_transform=args.transform, eval_mode_only=not args.noEvalOnly,
-                ori_mode=args.oriMode, debug_mode=args.debugMode)
+                ori_mode=args.oriMode, debug_mode=args.debugMode,
+                use_sgnums=args.useSGNums)
 
 #   TODO
 #   BINARY IMAGE CLASSIFIER -> get in the ballpark

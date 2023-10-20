@@ -7,6 +7,7 @@ from torch.utils.data import Dataset, DataLoader
 import torch
 import numpy as np
 import h5py
+from resonet.sims import paths_and_const
 
 from PIL import Image
 
@@ -146,7 +147,7 @@ class H5SimDataDset(Dataset):
 
     def __init__(self, h5name, dev=None, labels="labels", images="images",
                  start=None, stop=None, label_sel=None, use_geom=False, transform=None,
-                 half_precision=False):
+                 half_precision=False, use_sgnums=False):
         """
 
         :param h5name: hdf5 master file written by resonet/scripts/merge_h5s.py
@@ -161,6 +162,7 @@ class H5SimDataDset(Dataset):
         :param use_geom: if the `geom` dataset exists, then use each iter should return 3-tuple (labels, images, geom)
             Otherwise, each iter returns 2-tuple (images,labels)
             The geom tensor can be used as a secondary input to certain models
+        :param use_sgnums:
         """
         if label_sel is None:
             label_sel = [0]
@@ -174,6 +176,7 @@ class H5SimDataDset(Dataset):
         self.labels_name = labels
         self.images_name = images
         self.h5name = h5name
+        self.use_sgnums = use_sgnums
         self.transform = transform
         self.half_precision = half_precision
         self.has_geom = False  # if geometry is present in master file, it can be used as model input
@@ -200,6 +203,22 @@ class H5SimDataDset(Dataset):
         self.images = None  # hdf5 dataset
         self.labels = None  # hdf5 dataset
         self.geom = None  # hdf5 dataset
+        self.sg_from_pdb = None
+        self.symbol_to_num = None
+        self.sgnums = None
+        self.sgop_table = None
+        self._setup_sgmaps()
+
+    def _setup_sgmaps(self):
+        if not self.use_sgnums:
+            return
+        else:
+            assert paths_and_const.SGOP_FILE is not None
+            assert os.path.exists(paths_and_const.SGOP_FILE)
+        sg_dat = np.load(paths_and_const.SGOP_FILE, allow_pickle=True)
+        self.sg_from_pdb = sg_dat["sg_from_pdb"][()]
+        self.sgop_table = sg_dat["sgop_table"][()]
+        self.symbol_to_num = {k: i for i, k in enumerate(self.sgop_table.keys())}
 
     @staticmethod
     def _get_label_sel_from_label_names(fname, dset_name, label_names):
@@ -238,6 +257,17 @@ class H5SimDataDset(Dataset):
             elif self.half_precision and geom_dt != np.float16:
                 self.geom = self.geom.astype(np.float16)
 
+        if self.use_sgnums:
+            self.get_sgnums()
+
+    def get_sgnums(self):
+        pdbmap = {i: os.path.basename(f) for i,f in
+                   enumerate(self.h5[self.labels_name].attrs['pdbmap'])}
+        pdb_i = list(self.h5[self.labels_name].attrs['names']).index('pdb')
+        pdb_id_per_img = [pdbmap[i] for i in self.h5['labels'][:, pdb_i].astype(int)]
+        sgsym_per_img = [self.sg_from_pdb[p] for p in pdb_id_per_img]
+        self.sgnums = [self.symbol_to_num[sym] for sym in sgsym_per_img]
+
     def get_geom(self, geom_dset):
         ngeom = geom_dset.shape[-1]
         inds = list(range(ngeom))
@@ -254,9 +284,6 @@ class H5SimDataDset(Dataset):
                 pass
         geom = geom_dset[()][:, inds]
         return geom
-
-
-
 
     @property
     def dev(self):
@@ -288,6 +315,10 @@ class H5SimDataDset(Dataset):
             geom_inputs = self.geom[i+self.start]
             geom_inputs = torch.tensor(geom_inputs).to(self.dev)
             return img_dat, img_lab, geom_inputs
+        elif self.use_sgnums:
+            sgnums = self.sgnums[i+self.start]
+            sgnums = torch.tensor(sgnums).to(self.dev)
+            return img_dat, img_lab, sgnums
         else:
             return img_dat, img_lab
 
