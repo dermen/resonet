@@ -37,7 +37,7 @@ CUT_1P2 = False  # try loading the 1p2 fmodel files (assuming they were created)
 # these are the PDB folders containing pdb files and P1.hkl files
 RANDOM_PDBS = [d for d in glob.glob(os.path.join(dirname, "pdbs/*")) if len(os.path.basename(d))==4 and os.path.isdir(d)]
 PDB_MAP = {name: i for i, name in enumerate(RANDOM_PDBS)}
-SGOP_FILE = os.path.join(dirname, "ops_info_96.npz")
+SGOP_FILE = os.path.join(dirname, "pdb_ops.npy")
 
 # mosaicity bounds (degrees)
 MOS_MIN = 0.2

@@ -203,10 +203,9 @@ class H5SimDataDset(Dataset):
         self.images = None  # hdf5 dataset
         self.labels = None  # hdf5 dataset
         self.geom = None  # hdf5 dataset
-        self.sg_from_pdb = None
-        self.symbol_to_num = None
+        self.ops_from_pdb = None
+        self.pdb_id_to_num = None
         self.sgnums = None
-        self.sgop_table = None
         self._setup_sgmaps()
 
     def _setup_sgmaps(self):
@@ -215,10 +214,8 @@ class H5SimDataDset(Dataset):
         else:
             assert paths_and_const.SGOP_FILE is not None
             assert os.path.exists(paths_and_const.SGOP_FILE)
-        sg_dat = np.load(paths_and_const.SGOP_FILE, allow_pickle=True)
-        self.sg_from_pdb = sg_dat["sg_from_pdb"][()]
-        self.sgop_table = sg_dat["sgop_table"][()]
-        self.symbol_to_num = {k: i for i, k in enumerate(self.sgop_table.keys())}
+        self.ops_from_pdb = np.load(paths_and_const.SGOP_FILE, allow_pickle=True)[()]
+        self.pdb_id_to_num = {k: i for i, k in enumerate(self.ops_from_pdb.keys())}
 
     @staticmethod
     def _get_label_sel_from_label_names(fname, dset_name, label_names):
@@ -265,8 +262,7 @@ class H5SimDataDset(Dataset):
                    enumerate(self.h5[self.labels_name].attrs['pdbmap'])}
         pdb_i = list(self.h5[self.labels_name].attrs['names']).index('pdb')
         pdb_id_per_img = [pdbmap[i] for i in self.h5['labels'][:, pdb_i].astype(int)]
-        sgsym_per_img = [self.sg_from_pdb[p] for p in pdb_id_per_img]
-        self.sgnums = [self.symbol_to_num[sym] for sym in sgsym_per_img]
+        self.sgnums = [self.pdb_id_to_num[p] for p in pdb_id_per_img]
 
     def get_geom(self, geom_dset):
         ngeom = geom_dset.shape[-1]

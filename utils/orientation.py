@@ -1,6 +1,12 @@
 
 import numpy as np
 import torch
+import os
+from copy import deepcopy
+from cctbx import sgtbx, uctbx
+
+
+from resonet.sims import process_pdb
 
 
 def batch_cross(X, Y):
@@ -86,19 +92,19 @@ def loss(model_rots, gt_rots, reduce=True, sgnums=None):
 
 
 class Loss(torch.nn.Module):
-    def __init__(self, sgop_table, symbol_to_num, dev, *args, **kwargs):
+    def __init__(self, sgop_table, pdb_id_to_num, dev, *args, **kwargs):
         """
         :param sgop_table:
-        :param symbol_to_num:
+        :param pdb_id_to_num:
         """
         super().__init__(*args, **kwargs)
         self.Nop = max([len(v) for v in sgop_table.values()])
         self.Nsym = len(sgop_table)
         self.sgops = np.zeros((self.Nsym, self.Nop, 3, 3))
         self.sgops[:, :] = np.eye(3)  # default is the Identity
-        for sym in sgop_table:
-            rots = sgop_table[sym]
-            idx = symbol_to_num[sym]
+        for pdb_id in sgop_table:
+            rots = sgop_table[pdb_id]
+            idx = pdb_id_to_num[pdb_id]
             self.sgops[idx, :len(rots)] = rots
         self.sgops = torch.tensor(self.sgops.astype(np.float32), device=dev)
 
@@ -145,3 +151,57 @@ class Loss(torch.nn.Module):
         if reduce:
             loss = loss.mean()
         return loss
+
+
+def make_op_table(outfile):
+    """
+    Creates lists of rotation operators for each PDBfile simulated that should presever the diffraction patern
+    these are to be used for training loss calculation
+    :param outfile: file to save , to be assigned to resonet.sims.paths_and_const.SGOP_FILE
+    """
+    pdb_path = os.path.join(os.environ["RESONET_SIMDATA"], "pdbs")
+    pdb_id_file = os.path.join(pdb_path, "pdb_ids.txt")
+    pdb_ids = [p.strip() for p in open(pdb_id_file, "r").readlines()]
+
+    pdb_ops = {}
+    for p in pdb_ids:
+        pdb_file = os.path.join(pdb_path, "%s/%s.pdb" %(p,p))
+        P = process_pdb.PDB(pdb_file)
+
+        # change of basis to p1 operator
+        O = np.reshape(P.to_p1_op.c_inv().r().transpose().as_double(), (3, 3))
+        Oi = np.linalg.inv(O)
+
+        # recip space B-matrix in reference setting
+        Bc = np.reshape(P.dxtbx_crystal.get_B(), (3,3))
+        # real space B-matrix in P1
+        Breal = np.linalg.inv(Bc @ Oi).T
+
+        # convert Breal to upper triangular representation
+        uc = uctbx.unit_cell(orthogonalization_matrix=tuple(Breal.ravel()))
+        Breal = np.reshape(uc.orthogonalization_matrix(), (3,3))
+
+        # phantom Umat that is sometimes introduced when expanding to P1
+        Up = Bc @ Oi @ Breal.T
+
+        # loop over space group operations that preserve the diffraction pattern
+        sg = P.sym.space_group()
+        ops = sg.build_derived_laue_group().all_ops()
+        # keep the right-handed operators
+        ops = [o for o in ops if o.r().determinant() == 1]
+        # check translation like dials/algorithms/indexing/compare_orientation_matrices?
+        #assert all([o.t().is_zero() for o in ops])
+
+        Corig = deepcopy(P.dxtbx_crystal)
+        pdb_ops[p] = []
+        for o in ops:
+            o = sgtbx.change_of_basis_op(o)
+            Corig_o = Corig.change_basis(o)
+            C_p1 = Corig_o.change_basis(P.to_p1_op)
+            U = np.reshape(C_p1.get_U(), (3, 3))
+            U = Up.T @ U
+            # Now, if a crystal U-matrix is multiplied by this U, then the diffraction pattern should remain unchanged
+            pdb_ops[p].append(U)
+
+    np.save(outfile, pdb_ops)
+    return pdb_ops

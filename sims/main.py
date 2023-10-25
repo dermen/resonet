@@ -42,7 +42,8 @@ def args(use_joblib=False):
     parser.add_argument("--randCent", action="store_true", help="randomize the beam center")
     parser.add_argument("--randWave", action="store_true", help="randomize the beam wavelength")
     parser.add_argument("--randScale", action="store_true", help="randomize the crystal domain size")
-    parser.add_argument("--beamRotOnly", action="store_true", help="Rotate the crystals about the beam only (as a control)")
+    parser.add_argument("--axisRotOnly", choices=[0,1,2], type=int, default=None, help="Rotate the crystals about soecified axis (as a control)")
+    parser.add_argument("--twoAxisOnly", choices=[0,1,2], type=int, default=None, help="Rotate the crystals about specified axes (as a control) (0=xy, 1=xz, 2=yz)")
     parser.add_argument("--expt", type=str)
     parser.add_argument("--mask", type=str)
     parser.add_argument("--maskFileList", type=str)
@@ -181,10 +182,24 @@ def run(args, seeds, jid, njobs):
         geom_dset.attrs["names"] = geom_names
 
         # list of rotation matrices (length is Nshot)
-        if args.beamRotOnly:
+        if args.axisRotOnly is not None:
             angle = np.random.uniform(-180,180,Nshot)
             rot_vecs = np.zeros((Nshot, 3))
-            rot_vecs[:,2] = angle
+            rot_vecs[:,args.axisRotOnly] = angle
+            rotMats = Rotation.from_rotvec(rot_vecs, degrees=True).as_matrix()
+        elif args.twoAxisOnly is not None:
+            angle = np.random.uniform(-180,180, Nshot)
+            gvecs = np.random.normal(0,1,(Nshot, 2))
+            uvecs = gvecs / np.linalg.norm(gvecs, axis=1)[:,None]
+            #rot_vecs = uvecs*angle
+            rot_vecs = np.zeros((Nshot, 3))
+            if args.twoAxisOnly==0: # "xy"
+                rot_vecs[:,[0,1]] = uvecs
+            elif args.twoAxisOnly==1: # xz
+                rot_vecs[:,[0,2]] = uvecs
+            else:  # yz
+                rot_vecs[:,[1,2]] = uvecs
+            rot_vecs *= angle[:,None]
             rotMats = Rotation.from_rotvec(rot_vecs, degrees=True).as_matrix()
         else:
             rotMats = Rotation.random(Nshot).as_matrix()

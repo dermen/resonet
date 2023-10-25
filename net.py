@@ -384,8 +384,8 @@ def do_training(h5input, h5label, h5imgs, outdir,
     if ori_mode:
         if use_sgnums:
             # we need to provide to data stuctures that were created in the datasets above
-            criterion = orientation.Loss(sgop_table=all_imgs.sgop_table,
-                                         symbol_to_num=all_imgs.symbol_to_num,
+            criterion = orientation.Loss(sgop_table=all_imgs.ops_from_pdb,
+                                         pdb_id_to_num=all_imgs.pdb_id_to_num,
                                          dev=all_imgs.dev)
         else:
             criterion = orientation.loss
