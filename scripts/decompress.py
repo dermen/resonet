@@ -56,6 +56,7 @@ def main(jid):
 
             if args.names is None:
                 lab_dset.attrs['names'] = h['labels'].attrs['names']
+                lab_dset.attrs['pdbmap'] = h['labels'].attrs['pdbmap']
             else:
                 lab_dset.attrs["names"] = args.names
 

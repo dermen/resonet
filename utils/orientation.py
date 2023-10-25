@@ -122,7 +122,7 @@ class Loss(torch.nn.Module):
             # rots is Nbatch x Nop x 3 x 3
             #
             rots = self.sgops[sgnums]
-            model_rots_op = torch.matmul(rots, model_rots[:,None])
+            model_rots_op = torch.matmul(model_rots[:,None], rots)
             G = gt_rots.reshape((-1,3,3)).transpose(1,2)
             mat_prod = torch.matmul(model_rots_op, G[:,None])
             diags = torch.diagonal(mat_prod, dim1=3, dim2=2)
@@ -195,7 +195,10 @@ def make_op_table(outfile):
         Corig = deepcopy(P.dxtbx_crystal)
         pdb_ops[p] = []
         for o in ops:
+
+            # should this b o.inverse like dials/algorithms/indexing/compare_orientation_matrices ?
             o = sgtbx.change_of_basis_op(o)
+
             Corig_o = Corig.change_basis(o)
             C_p1 = Corig_o.change_basis(P.to_p1_op)
             U = np.reshape(C_p1.get_U(), (3, 3))

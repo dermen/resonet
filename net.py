@@ -281,6 +281,8 @@ def _train_iter(data, labels, model, criterion, optimizer, sgnums=None):
     if len(outputs.shape) == 3 and not ori_loss:
         nbatch = outputs.shape[0]
         outputs = outputs.reshape((nbatch, -1))
+    if ori_loss:
+        assert torch.all( torch.round(torch.linalg.det(outputs)) == 1).item()
     if ori_loss and sgnums is not None:
         loss = criterion(outputs, labels, sgnums=sgnums)
     else:
