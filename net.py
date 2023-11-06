@@ -13,7 +13,7 @@ def get_parser():
     parser.add_argument("--loss", type=str, choices=["L1", "L2", "BCE", "BCE2"], default="L1", help="loss function selector")
     parser.add_argument("--gpuid", type=int, help="device Id", default=0)
     parser.add_argument("--saveFreq", type=int, default=10, help="how often to write the model to disk")
-    parser.add_argument("--arch", type=str, choices=["le", "res18", "res50", "res34", "res101", "res152"],
+    parser.add_argument("--arch", type=str, choices=["le", "res18", "res50", "res34", "res101", "res152", "counter"],
                         default="res50", help="architecture selector")
     parser.add_argument("--loglevel", type=str, 
             choices=["debug", "info", "critical"], default="info", help="python logger level")
@@ -175,13 +175,13 @@ def validate(input_tens, model, epoch, criterion, COMM=None, error=0.3):
 
     elif not using_bce:
         acc = nacc / total*100.
-        #pears = [pearsonr(L,P)[0] for L,P in zip(all_lab, all_pred)]
-        #spears = [spearmanr(L,P)[0] for L,P in zip(all_lab, all_pred)]
-        #logger.info("\taccuracy at Ep%d: %.2f%%" \
-        #    % (epoch+1, acc))
-        #for pear, spear in zip(pears, spears):
-        #    logger.info("\tpredicted-VS-truth: PearsonR=%.3f%%, SpearmanR=%.3f%%" \
-        #        % (pear*100, spear*100))
+        pears = [pearsonr(L,P)[0] for L,P in zip(all_lab, all_pred)]
+        spears = [spearmanr(L,P)[0] for L,P in zip(all_lab, all_pred)]
+        logger.info("\taccuracy at Ep%d: %.2f%%" \
+            % (epoch+1, acc))
+        for pear, spear in zip(pears, spears):
+            logger.info("\tpredicted-VS-truth: PearsonR=%.3f%%, SpearmanR=%.3f%%" \
+                % (pear*100, spear*100))
         ave_loss = np.mean(all_loss)
         return acc, ave_loss, all_lab, all_pred
     else:
@@ -289,6 +289,7 @@ def _train_iter(data, labels, model, criterion, optimizer, sgnums=None):
         loss = criterion(outputs, labels)
     loss.backward()
     optimizer.step()
+    return outputs
 
 
 def do_training(h5input, h5label, h5imgs, outdir,
@@ -365,12 +366,15 @@ def do_training(h5input, h5label, h5imgs, outdir,
 
     # instantiate model
     # TODO make geometry length a variable (for now its always [detdist, pixsize, wavelen, fastdim, slowdim]
-    if cp is None:
-        nety = ARCHES[arch](nout=nout, dev=all_imgs.dev, dropout=dropout, ngeom=5, weights=weights)
+    if arch=="counter":
+        nety = ARCHES[arch]().to(all_imgs.dev)
     else:
-        nety = ARCHES[arch](nout=nout, dev="cpu", dropout=dropout, ngeom=5, weights=weights)
-        nety.load_state_dict(cp["model_state"])
-        nety = nety.to(all_imgs.dev)
+        if cp is None:
+            nety = ARCHES[arch](nout=nout, dev=all_imgs.dev, dropout=dropout, ngeom=5, weights=weights)
+        else:
+            nety = ARCHES[arch](nout=nout, dev="cpu", dropout=dropout, ngeom=5, weights=weights)
+            nety.load_state_dict(cp["model_state"])
+            nety = nety.to(all_imgs.dev)
 
     nety.ori_mode = ori_mode
 
@@ -480,9 +484,10 @@ def do_training(h5input, h5label, h5imgs, outdir,
                     % (epoch+1, i+1, nbatch), flush=True)
             if debug_mode:
                 with torch.autograd.detect_anomaly():
-                    _train_iter(data, labels, nety, criterion, optimizer, sgnums)
+                    outputs = _train_iter(data, labels, nety, criterion, optimizer, sgnums)
             else:
-                _train_iter(data, labels, nety, criterion, optimizer, sgnums)
+                outputs = _train_iter(data, labels, nety, criterion, optimizer, sgnums)
+            print("Predictions are in the range %f-%f" % (outputs.min().item(), outputs.max().item() ) )
 
         ttrain = time.time()-t0
         if COMM is None or COMM.rank==0:

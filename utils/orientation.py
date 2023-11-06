@@ -1,12 +1,50 @@
 
-import numpy as np
-import torch
 import os
 from copy import deepcopy
+import numpy as np
+import torch
+from scipy.spatial.transform import Rotation
+
 from cctbx import sgtbx, uctbx
+from cctbx.sgtbx.literal_description import  literal_description
+from scitbx.matrix import sqr
+from iotbx import pdb as iotbx_pdb
+from simtbx.nanoBragg import nanoBragg
+from dxtbx.model import Crystal, DetectorFactory, BeamFactory
 
 
 from resonet.sims import process_pdb
+
+
+def Fs_from_pdb(pdb_file):
+    pdb_in = iotbx_pdb.input(pdb_file)
+    xray_structure = pdb_in.xray_structure_simple(enable_scattering_type_unknown=True)
+    scatts = xray_structure.scatterers()
+    xray_structure.erase_scatterers()
+    for sc in scatts:
+        try:
+            _ = sc.electron_count()  # fails for unknown scatterer types
+        except RuntimeError:
+            continue
+        xray_structure.add_scatterer(sc)
+
+    fcalc = xray_structure.structure_factors(
+        d_min=2,
+        algorithm='fft',
+        anomalous_flag=True)
+    F = fcalc.f_calc().as_amplitude_array()
+    return F
+
+def _prep_miller_array(mill_arr):
+    """prep for nanoBragg"""
+    # TODO: is this correct order of things?
+    cb_op = mill_arr.space_group_info().change_of_basis_op_to_primitive_setting()
+    mill_arr = mill_arr.expand_to_p1()
+    mill_arr = mill_arr.generate_bijvoet_mates()
+    dtrm = cb_op.c().r().determinant()
+    if not dtrm == 1:
+        mill_arr = mill_arr.change_basis(cb_op)
+    return mill_arr
 
 
 def batch_cross(X, Y):
@@ -153,8 +191,141 @@ class Loss(torch.nn.Module):
         return loss
 
 
-def make_op_table(outfile):
+def make_op_table_using_nanoBragg(outfile, cuda=True):
+    pdb_path = os.path.join(os.environ["RESONET_SIMDATA"], "pdbs")
+    pdb_id_file = os.path.join(pdb_path, "pdb_ids.txt")
+    pdb_ids = [p.strip() for p in open(pdb_id_file, "r").readlines()]
+
+    pdb_ops = {}
+    for i_pdb, pdb_id in enumerate(pdb_ids):
+        print("Beginngin PDB %s (%d / %d)" % (pdb_id, i_pdb+1, len(pdb_ids)))
+
+        add_spots_func = "add_nanoBragg_spots"
+        if cuda:
+            add_spots_func = "add_nanoBragg_spots_cuda"
+        os.system("iotbx.fetch_pdb %s" % pdb_id)
+        pdb_file = pdb_id + ".pdb"
+        assert os.path.exists(pdb_file)
+        print("Downloaded %s." % pdb_file)
+        F = Fs_from_pdb(pdb_file)
+
+        sg = F.space_group()
+        sgi = sg.info()
+        print("PDB unit cell, space group:\n", F, "\n")
+
+        ucell = F.crystal_symmetry().unit_cell()
+        O = ucell.orthogonalization_matrix()
+        # real space vectors
+        a = O[0], O[3], O[6]
+        b = O[1], O[4], O[7]
+        c = O[2], O[5], O[8]
+        C_sg = Crystal(a, b, c, sg)
+        B_sg = np.reshape(C_sg.get_B(), (3,3))
+        # this should have the identity as a Umat
+        assert np.allclose(C_sg.get_U(), (1, 0, 0, 0, 1, 0, 0, 0, 1))
+
+        to_p1_op = sgi.change_of_basis_op_to_primitive_setting()
+        # this block of code is used to compute the "phantom Umat" thats introduced when
+        # converting certain space groups to P1
+        # to p1 matrix, these should be identical:
+        Oi_test = np.linalg.inv(np.reshape(to_p1_op.c_inv().r().transpose().as_double(), (3, 3)))
+        Oi = np.reshape(to_p1_op.c().r().transpose().as_double(), (3, 3))
+        assert np.allclose(Oi, Oi_test)
+
+        # real space B-matrix in P1
+        Breal_p1 = np.linalg.inv(B_sg @ Oi).T
+        # convert Breal to upper triangular representation
+        uc = uctbx.unit_cell(orthogonalization_matrix=tuple(Breal_p1.ravel()))
+        Breal_p1 = np.reshape(uc.orthogonalization_matrix(), (3, 3))
+        Brecip_p1 = np.linalg.inv(Breal_p1).T
+        Bi = np.linalg.inv(Brecip_p1)
+        # phantom Umat:
+        U_p = B_sg @ Oi @ Bi
+
+        # convert crystal to P1
+        C_p1 = C_sg.change_basis(to_p1_op)
+        # note, the Umat of C_p1 should be U_p, and not always identity
+        assert np.allclose( C_p1.get_U(), U_p.ravel())
+
+        # Generate a diffraction pattern at a random orientation
+        # random orientation
+        Misset = sqr(Rotation.random(random_state=1).as_matrix().flatten())
+        # reorient the P1 crystal
+        U_p1 = sqr(C_p1.get_U())
+        C_p1.set_U(Misset * U_p1)
+
+        # make a detector and a beam
+        beam = BeamFactory.simple(wavelength=1)
+        detector = DetectorFactory.simple(
+            sensor='PAD',
+            distance=200,
+            beam_centre=(51.25, 51.25),
+            fast_direction='+x',
+            slow_direction='-y',
+            pixel_size=(.1, .1),
+            image_size=(1024, 1024))
+
+        SIM = nanoBragg(detector=detector, beam=beam)
+        SIM.oversample = 1
+        SIM.interpolate = 0
+        # convert to P1 (and change basis depending on space group)
+        F_p1 = _prep_miller_array(F)
+        SIM.Fhkl_tuple = F_p1.indices(), F_p1.data()
+        SIM.Amatrix = sqr(C_p1.get_A()).transpose()
+        ucell_p1 = C_p1.get_unit_cell().parameters()
+        assert np.allclose(SIM.unit_cell_tuple, ucell_p1)
+        SIM.Ncells_abc = 7, 7, 7
+        getattr(SIM, add_spots_func)()
+        # this is the reference image which we will compare to below after rotating the crystal and re-simulating
+        reference = SIM.raw_pixels.as_numpy_array()
+
+        #sanity_check_Fs(SIM, sg, C_p1.get_unit_cell().parameters())
+
+        # list all of the laue group operators, should have no translations
+        ops = sg.build_derived_laue_group().all_ops()
+        ops = [o for o in ops if o.r().determinant() == 1]
+        Umat_ops = []
+        for o in ops:
+            assert o.t().is_zero()
+
+            # we perturb the crystal model and re-simulate
+            sg_op = sgtbx.change_of_basis_op(o)
+            C_o = C_sg.change_basis(sg_op).change_basis(to_p1_op)
+            U_o = sqr(C_o.get_U())
+            C_o.set_U(Misset * U_o)
+            Amat = sqr(C_o.get_A())
+            SIM.raw_pixels *= 0  # reset the image
+            SIM.Amatrix = Amat.transpose()
+            getattr(SIM, add_spots_func)()
+            # new image, should be equivalent to reference if the symop preserved the diffraction
+            img = SIM.raw_pixels.as_numpy_array()
+
+            ucell = [round(x, 2) for x in SIM.unit_cell_tuple]
+            print("operator:", o.as_xyz(), "ucell:", ucell)
+            forms = literal_description(o)
+            print(forms.long_form())
+            if not np.allclose(img, reference):
+                print("Image comparison failed\n")
+            else:
+                # in practice, if we know a patterns U-mat, and we want to test an equivalent, then we should
+                # right multiply the patterns U-mat by this matrix U_m:
+                U_m = np.reshape(o.r().as_double(), (3,3))
+                U_m = B_sg @ U_m.T @ np.linalg.inv(B_sg)
+                U_m = np.linalg.inv(U_p) @ U_m @ U_p
+                Umat_ops.append(U_m)
+                print("Images are identical.\n")
+
+        print(str(sgi).replace(" ", ""), ": %d/%d Umats saved" % (len(Umat_ops), len(ops)))
+        SIM.free_all()
+        pdb_ops[pdb_id] = Umat_ops
+
+    np.save(outfile, pdb_ops)
+    return pdb_ops
+
+
+def make_op_table_old(outfile):
     """
+    NOTE: this doesnt quite work for some space groups (P3, P6, I, F)
     Creates lists of rotation operators for each PDBfile simulated that should presever the diffraction patern
     these are to be used for training loss calculation
     :param outfile: file to save , to be assigned to resonet.sims.paths_and_const.SGOP_FILE

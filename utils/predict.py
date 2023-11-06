@@ -83,6 +83,8 @@ class ImagePredict:
         self.allowed_quads = {0: "A", 1: "B", 2: "C", 3: "D"}
         self.quads = [1]
         self.gain = 1  # adu per photon
+        self.raw_image = None
+        self.cache_raw_image = False
 
     def _try_load_B_to_d(self, path):
         """path: saved MLP model for estimating reso from Bfactor"""
@@ -107,6 +109,14 @@ class ImagePredict:
             model = method(model_path, model_arch)
             model = model.to(self._dev)
         setattr(self, "%s_model" % model_name, model)
+
+    @property
+    def cache_raw_image(self):
+        return self._cache_raw_image
+
+    @cache_raw_image.setter
+    def cache_raw_image(self, val):
+        self._cache_raw_image = val
 
     @property
     def pixels(self):
@@ -226,6 +236,9 @@ class ImagePredict:
                 mx = self.maxpool_eiger_counts
             self.counts_pixels = process_image(raw_img/self.gain*self.mask, cond_meth=mx,
                                        useSqrt=True, dev=self._dev)[None]
+
+        if self.cache_raw_image:
+            self.raw_image = raw_img
 
     def _set_default_mask(self, raw_img):
         if self.mask is None:
