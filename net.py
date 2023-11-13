@@ -487,7 +487,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
                     outputs = _train_iter(data, labels, nety, criterion, optimizer, sgnums)
             else:
                 outputs = _train_iter(data, labels, nety, criterion, optimizer, sgnums)
-            print("Predictions are in the range %f-%f" % (outputs.min().item(), outputs.max().item() ) )
+            #print("Predictions are in the range %f-%f" % (outputs.min().item(), outputs.max().item() ) )
 
         ttrain = time.time()-t0
         if COMM is None or COMM.rank==0:

@@ -1,8 +1,10 @@
+import shutil
 from argparse import ArgumentParser
 parser = ArgumentParser()
 parser.add_argument("dirname", type=str)
 parser.add_argument("--njobs", type=int, default=4)
 parser.add_argument("--names", type=str, default=None, nargs='+')
+parser.add_argument("--ranks", action="store_true", help="use this option to decompress files named rank*.h5")
 args = parser.parse_args()
 
 import h5py
@@ -13,6 +15,7 @@ import numpy as np
 import sys
 import glob
 import os
+import shutil
 
 """
 usage:
@@ -25,7 +28,16 @@ Will create new files in folder baxter.4 using 10 processes
 
 #NJOBS=COMM.size
 
+if args.ranks:
+    fnames = glob.glob(args.dirname + "/rank*.h5")
+    for i, f in enumerate(fnames):
+        print("Copyfile", i + 1, "/", len(fnames))
+        f2 = f.replace("rank", "compressed")
+        os.rename(f, f2)
+
+
 def main(jid):
+
     fnames = glob.glob(args.dirname + "/compressed*.h5")
 
     for i_f, f in enumerate(fnames):

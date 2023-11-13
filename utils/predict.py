@@ -80,7 +80,7 @@ class ImagePredict:
         self.maxpool_4x4 = torch.nn.MaxPool2d(4, 4)
         self.maxpool_pilatus_counts = mx_gamma(self._dev, stride=3)
         self.maxpool_eiger_counts = mx_gamma(self._dev, stride=5)
-        self.allowed_quads = {0: "A", 1: "B", 2: "C", 3: "D"}
+        self.allowed_quads = {-1: "rand1", -2: "rand2", 0: "A", 1: "B", 2: "C", 3: "D"}
         self.quads = [1]
         self.gain = 1  # adu per photon
         self.raw_image = None
@@ -200,7 +200,10 @@ class ImagePredict:
         # TODO assert val is iterable
         for v in val:
             if v not in self.allowed_quads:
-                raise ValueError("Only values 0,1,2,3 can be set as quads")
+                raise ValueError("Only values -1,-2,0,1,2,3 can be set as quads")
+        if -1 in val or -2 in val:
+            if not len(val)==1:
+                raise ValueError("If -1 or -2 in quads, no other values are allowed")
         self._quads = [self.allowed_quads[v] for v in val]
 
     def _set_geom_tensor(self):
@@ -224,7 +227,11 @@ class ImagePredict:
             maxpool = self.maxpool_4x4
             dwnsamp = 4
         tensors = []
-        for quad in self.quads:
+        _quads = self.quads
+        if _quads == [-1] or _quads == [-2]:
+            size = 1 if _quads== [-1] else 2
+            _quads = np.random.choice(["A", "B", "C", "D"], size=size)
+        for quad in _quads:
             tens = to_tens(raw_img/self.gain, self.mask, maxpool=maxpool,
                            ds_fact=dwnsamp, quad=quad, dev=self._dev)
             tensors.append(tens)

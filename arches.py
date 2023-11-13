@@ -234,7 +234,7 @@ class CounterRn(nn.Module):
         if num == 50:
             self.res = models.resnet50()
 
-        self.res.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)#nn.Conv2d(1, self.res.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
+        self.res.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.fc_1000_to_100 = nn.Linear(1000, 100)
         self.fc_100_to_1 = nn.Linear(100, 1)
         self.fc_1000_to_1 = nn.Linear(1000, 1)
