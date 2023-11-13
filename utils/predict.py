@@ -230,7 +230,7 @@ class ImagePredict:
         _quads = self.quads
         if _quads == [-1] or _quads == [-2]:
             size = 1 if _quads== [-1] else 2
-            _quads = np.random.choice(["A", "B", "C", "D"], size=size)
+            _quads = np.random.choice(["A", "B", "C", "D"], size=size, replace=False)
         for quad in _quads:
             tens = to_tens(raw_img/self.gain, self.mask, maxpool=maxpool,
                            ds_fact=dwnsamp, quad=quad, dev=self._dev)
