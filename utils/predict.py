@@ -228,8 +228,8 @@ class ImagePredict:
             dwnsamp = 4
         tensors = []
         _quads = self.quads
-        if _quads == [-1] or _quads == [-2]:
-            size = 1 if _quads== [-1] else 2
+        if _quads == ['rand1'] or _quads == ['rand2']:
+            size = 1 if _quads== ['rand1'] else 2
             _quads = np.random.choice(["A", "B", "C", "D"], size=size, replace=False)
         for quad in _quads:
             tens = to_tens(raw_img/self.gain, self.mask, maxpool=maxpool,
@@ -260,7 +260,9 @@ class ImagePredict:
         self._check_pixels()
         self._check_geom()
         self._check_model("reso")
+
         one_over_reso = self.reso_model(self.pixels, self.geom)
+
         if use_min:
             reso = torch.min(1/one_over_reso).item()
         else:
