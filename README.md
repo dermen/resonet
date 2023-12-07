@@ -8,7 +8,7 @@ In other words, if you clone `resonet` in `/home/username/something`, such that 
 export PYTHONPATH=$PYTHONPATH:/home/username/something
 ```
 
-# Resonet tutorial (in progress)
+# Resonet tutorial
 
 ## Install
 
@@ -25,9 +25,9 @@ conda install -y -c conda-forge mamba
 mamba create -y -n py39 --file linux.txt python=3.9
 ```
 
-Then, install cuda, version 12+ (older version work, but require different conda environments.
+Then, install cuda, version 12+ (older versions work, but require different conda environments).
 
-With the conda env and CUDA installed, one can build CCTBX with CUDA support. Verify CUDA is indeed installed correctly
+With the conda env and CUDA installed, one can build CCTBX with CUDA support. Verify CUDA is indeed installed correctly and then set the standard CUDA environment
  
 ```bash
 export PATH=/usr/local/cuda-12.1/bin:$PATH
@@ -35,14 +35,14 @@ export CUDA_HOME=/usr/local/cuda-12.1
 export LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64
 ```
 
-Check you can see GPUs using ```nvidia-smi```. Then, activate the conda env:
+Check you can see the GPU(s) using ```nvidia-smi```. Then, activate the conda env:
 
 
 ```bash
 conda activate py39
 ```
 
-Now create a subfolder for building CCTBX and get the bootstrap command:
+Now create a subfolder for building CCTBX and get the CCTBX bootstrap script:
 
 ```bash
 mkdir ~/xtal
@@ -86,7 +86,6 @@ cd ~/xtal/modules
 git clone https://github.com/dermen/resonet.git
 libtbx.refresh
 ```
-
 
 
 ## Synthesize training data
@@ -140,4 +139,3 @@ One can plot the training progress using the script `plot_train.py`:
 ```
 libtbx.python ~/xtal/resonet/scripts/plot_train.py test_opt/train.log
 ```
-
