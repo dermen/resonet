@@ -8,7 +8,7 @@ In other words, if you clone `resonet` in `/home/username/something`, such that 
 export PYTHONPATH=$PYTHONPATH:/home/username/something
 ```
 
-# Resonet tutorial
+# Resonet tutorial (in progress)
 
 ## Install
 
@@ -81,7 +81,7 @@ Lastly, install pytorch, a few useful tools like ipython, and lastly resonet:
 
 ```bash
 # after sourcing setpaths.sh, libtbx.python will be in path
-libtbx.python -m pip install torch torchvision jupyter ipython
+libtbx.python -m pip install torch torchvision torchmetrics jupyter ipython
 cd ~/xtal/modules
 git clone https://github.com/dermen/resonet.git
 libtbx.refresh
@@ -126,6 +126,18 @@ This creates a `master.h5` which can be passed directly to the training script.
 
 
 ## Train the model
+The script `net.py` has a lot of functionality, but is still under heavy development. Use it as follows:
+
+```
+libtbx.python ~/xtal/resonet/net.py  100 test_shots_mpi/master.h5  test_opt --labelSel one_over_reso --useGeom  --trainRange 2 10 --testRange 0 2 --bs 4
+```
+
+The first argument is the number of training epochs. The second argument is the input, and the thirs argument is the output folder where results and a log file will be written. For this dummie case with 10 shots, the results will be garbage, but this gives a feel for the workflow. Try simulating 10,000 shots and then pass `--testRange 0 1000 --trainRange 1000 10000`.
 
 ## Check the results
+One can plot the training progress using the script `plot_train.py`:
+
+```
+libtbx.python ~/xtal/resonet/scripts/plot_train.py test_opt/train.log
+```
 
