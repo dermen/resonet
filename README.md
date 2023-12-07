@@ -92,11 +92,40 @@ libtbx.refresh
 ## Synthesize training data
 With the above environment, you should now download the simulation meta data:
 
+```
+wget https://smb.slac.stanford.edu/~dermen/for_tutorial.tar.gz
+tar -xzvf for_tutorial.tar.gz
+```
+
+and then specify its location using the environment variable `RESONET_SIMDATA`:
+
+```
+export RESONET_SIMDATA=/path/to/for_tutorial/diffraction_ai_sims_data/
+```
+
+Now, siumulations can be run using:
+
+```
+cd ~/xtal/modules/resonet/sims
+libtbx.python runme.py test_shots  --nshot 10 --pdbName $RESONET_SIMDATA/pdbs/
+```
+
+Note, if MPI is installed the above script can be envoked with mpirun or srun
+
+```
+mpirun -n 4 libtbx.python runme.py test_shots --nshots 10 --pdbName $RESONET_SIMDATA/pdbs
+```
+
+In parallel mode, each MPI-rank will write a unique output file, and these can be combined using the `merge_h5s.py` script:
+
+```
+libtbx.python ~/xtal/resonet/scripts/merge_h5s.py test_shots test_shots/master.h5
+```
+
+This creates a `master.h5` which can be passed directly to the training script.
 
 
 ## Train the model
 
-
 ## Check the results
-
 

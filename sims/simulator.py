@@ -132,7 +132,6 @@ class Simulator:
         else:
             S.D.add_nanoBragg_spots()
         spots = S.D.raw_pixels.as_numpy_array()
-        from IPython import embed;embed()
         use_multi = np.random.random() < multi_lattice_chance
         ang_sigma = 0
         num_additional_lat = 0
