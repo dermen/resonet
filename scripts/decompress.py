@@ -1,21 +1,10 @@
-import shutil
-from argparse import ArgumentParser
-parser = ArgumentParser()
-parser.add_argument("dirname", type=str)
-parser.add_argument("--njobs", type=int, default=4)
-parser.add_argument("--names", type=str, default=None, nargs='+')
-parser.add_argument("--ranks", action="store_true", help="use this option to decompress files named rank*.h5")
-args = parser.parse_args()
-
 import h5py
 from joblib import Parallel, delayed
-#from mpi4py import MPI
-#COMM = MPI.COMM_WORLD
-import numpy as np
-import sys
+from argparse import ArgumentParser
 import glob
 import os
-import shutil
+import numpy as np
+
 
 """
 usage:
@@ -25,18 +14,7 @@ Will create new files in folder baxter.4 using 10 processes
 """
 
 
-
-#NJOBS=COMM.size
-
-if args.ranks:
-    fnames = glob.glob(args.dirname + "/rank*.h5")
-    for i, f in enumerate(fnames):
-        print("Copyfile", i + 1, "/", len(fnames))
-        f2 = f.replace("rank", "compressed")
-        os.rename(f, f2)
-
-
-def main(jid):
+def proc_main(jid):
 
     fnames = glob.glob(args.dirname + "/compressed*.h5")
 
@@ -58,9 +36,9 @@ def main(jid):
             dset = hnew.create_dataset("images", shape=imgs.shape, dtype=np.float32)
             for i_img in range(imgs.shape[0]):
                 if i_img % 10==0:
-                   print(f"Job{jid} Decompressing file {i_f+1}/{len(fnames)}, shot {i_img+1}/{imgs.shape[0]}") 
+                   print(f"Job{jid} Decompressing file {i_f+1}/{len(fnames)}, shot {i_img+1}/{imgs.shape[0]}")
                 dset[i_img] = imgs[i_img].astype(np.float32)
-                
+
             lab_dset = hnew.create_dataset("labels", data=labels.astype(np.float32))
             if geom is not None:
                 geom_dset = hnew.create_dataset("geom", data=geom.astype(np.float32))
@@ -72,6 +50,21 @@ def main(jid):
             else:
                 lab_dset.attrs["names"] = args.names
 
-#main(COMM.rank)
-Parallel(n_jobs=args.njobs)(delayed(main)(jid) for jid in range(args.njobs))
 
+def main():
+    parser = ArgumentParser()
+    parser.add_argument("dirname", type=str)
+    parser.add_argument("--njobs", type=int, default=4)
+    parser.add_argument("--names", type=str, default=None, nargs='+')
+    parser.add_argument("--ranks", action="store_true", help="use this option to decompress files named rank*.h5")
+    args = parser.parse_args()
+    if args.ranks:
+        fnames = glob.glob(args.dirname + "/rank*.h5")
+        for i, f in enumerate(fnames):
+            print("Copyfile", i + 1, "/", len(fnames))
+            f2 = f.replace("rank", "compressed")
+            os.rename(f, f2)
+    Parallel(n_jobs=args.njobs)(delayed(proc_main)(jid) for jid in range(args.njobs))
+
+if __name__=="__main__":
+    main()

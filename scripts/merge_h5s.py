@@ -1,79 +1,83 @@
 import h5py
 import glob
 import os
-import numpy as np
-
 from argparse import ArgumentParser
-parser = ArgumentParser()
-parser.add_argument("dirnames", nargs="+", type=str, help="output folders from runme.py or runme_joblib.py")
-parser.add_argument("outname", type=str, help="name of the  master file")
-parser.add_argument("--moreKeys", nargs="+", type=str, default=[], help="names of additional datasets to virtualize. These should be present in all rank* files!")
-args = parser.parse_args()
 
-"""
-Use this method to merge the rank*.h5 files that are output by
-runme_cpu.py (when using MPI mode , each rank writes a file)
-"""
+def main():
+    parser = ArgumentParser()
+    parser.add_argument("dirnames", nargs="+", type=str, help="output folders from runme.py or runme_joblib.py")
+    parser.add_argument("outname", type=str, help="name of the  master file")
+    parser.add_argument("--moreKeys", nargs="+", type=str, default=[], help="names of additional datasets to virtualize. These should be present in all rank* files!")
+    args = parser.parse_args()
 
-fnames = []
-for dirname in args.dirnames:
-    fnames += glob.glob(os.path.join(dirname, "rank*h5"))
+    """
+    Use this method to merge the rank*.h5 files that are output by
+    runme_cpu.py (when using MPI mode , each rank writes a file)
+    """
 
-print("Combining %d files" % len(fnames))
+    fnames = []
+    for dirname in args.dirnames:
+        fnames += glob.glob(os.path.join(dirname, "rank*h5"))
 
-dummie_h = h5py.File(fnames[0], "r")
+    print("Combining %d files" % len(fnames))
 
-#has_geom = "geom" in list(dummie_h.keys())
-#ngeom_params = 0
-#if has_geom:
-#    ngeom_params = dummie_h["geom"].shape[1]
+    dummie_h = h5py.File(fnames[0], "r")
 
-shapes = {}
-for key in ["images_mean", "images", "labels", "full_maximg", "geom"] + args.moreKeys:
-    try:
-        shapes[key] = dummie_h[key].shape[1:] 
-    except KeyError:
-        pass
+    #has_geom = "geom" in list(dummie_h.keys())
+    #ngeom_params = 0
+    #if has_geom:
+    #    ngeom_params = dummie_h["geom"].shape[1]
 
-imgs_per_fname = [h5py.File(f, 'r')['labels'].shape[0] for f in fnames]
-total_imgs = sum(imgs_per_fname)
+    shapes = {}
+    for key in ["images_mean", "images", "labels", "full_maximg", "geom"] + args.moreKeys:
+        try:
+            shapes[key] = dummie_h[key].shape[1:]
+        except KeyError:
+            pass
 
-Layouts = {}
-for key, shape in shapes.items():
-    Layouts[key] = h5py.VirtualLayout(shape=(total_imgs,) + shape, dtype=dummie_h[key].dtype)
+    imgs_per_fname = [h5py.File(f, 'r')['labels'].shape[0] for f in fnames]
+    total_imgs = sum(imgs_per_fname)
 
-Sources = {}
-records = []
-start = 0
-for i_f, f in enumerate(fnames):
-    print("virtualizing file %d / %d" % (i_f+1, len(fnames)))
-    nimg = imgs_per_fname[i_f]
-    for key in Layouts:
-        #if key == "geom":
-        #    continue
-        vsource = h5py.VirtualSource(f, key, shape=(nimg,) + shapes[key])
-        Layouts[key][start:start+nimg] = vsource
-        Sources[(key, f)] = vsource
+    Layouts = {}
+    for key, shape in shapes.items():
+        Layouts[key] = h5py.VirtualLayout(shape=(total_imgs,) + shape, dtype=dummie_h[key].dtype)
 
-    #if ngeom_params:
-    #    geom_source = h5py.VirtualSource(f, "geom", shape=(ngeom_params,))
-    #    for i_img in range(nimg):
-    #        Layouts["geom"][start+i_img] = geom_source
+    Sources = {}
+    records = []
+    start = 0
+    for i_f, f in enumerate(fnames):
+        print("virtualizing file %d / %d" % (i_f+1, len(fnames)))
+        nimg = imgs_per_fname[i_f]
+        for key in Layouts:
+            #if key == "geom":
+            #    continue
+            vsource = h5py.VirtualSource(f, key, shape=(nimg,) + shapes[key])
+            Layouts[key][start:start+nimg] = vsource
+            Sources[(key, f)] = vsource
 
-    #    Sources[("geom", f)] = geom_source
+        #if ngeom_params:
+        #    geom_source = h5py.VirtualSource(f, "geom", shape=(ngeom_params,))
+        #    for i_img in range(nimg):
+        #        Layouts["geom"][start+i_img] = geom_source
 
-    start += nimg
+        #    Sources[("geom", f)] = geom_source
 
-print("Saving it all to %s!" % args.outname) #master_name)
-print("Total number of shots=%d" % total_imgs)
-with h5py.File(args.outname, "w") as H:
-    for key in Layouts:
-        vd = H.create_virtual_dataset(key, Layouts[key])
-        for attr in ["names", "pdbmap"]:
-            if attr in dummie_h[key].attrs:
-                vd.attrs[attr] = dummie_h[key].attrs[attr]
+        start += nimg
 
-        #if key == "labels":
-        #    vd.attrs["names"] = label_names
+    print("Saving it all to %s!" % args.outname) #master_name)
+    print("Total number of shots=%d" % total_imgs)
+    with h5py.File(args.outname, "w") as H:
+        for key in Layouts:
+            vd = H.create_virtual_dataset(key, Layouts[key])
+            for attr in ["names", "pdbmap"]:
+                if attr in dummie_h[key].attrs:
+                    vd.attrs[attr] = dummie_h[key].attrs[attr]
 
-print("Done!")
+            #if key == "labels":
+            #    vd.attrs["names"] = label_names
+
+    print("Done!")
+
+
+if __name__=="__main__":
+    main()
