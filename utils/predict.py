@@ -248,7 +248,7 @@ class ImagePredict:
             self.raw_image = raw_img
 
     def _set_default_mask(self, raw_img):
-        if self.mask is None:
+        if self.mask is None or raw_img.shape != self.mask.shape:
             mask = raw_img >= 0
             mask = ~binary_dilation(~mask, iterations=1)
             self.mask = mask
