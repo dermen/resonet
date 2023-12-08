@@ -41,6 +41,8 @@ def load_model(state_name, arch="res50"):
     return model
     
 
+# TODO: remove un-used to_tens methods
+
 def raw_img_to_tens(raw_img, MASK, howbin='max', quad="A", cent=None, numpy_only=False,
         adu_per_photon=1, ds_fact=4, IMAX=None):
 
@@ -274,3 +276,4 @@ def to_tens(raw_img, mask, maxpool, cent=None, maxval=65025, adu_per_photon=1,
     quad = quad[None, None]
 
     return quad
+
