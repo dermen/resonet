@@ -18,6 +18,7 @@ def main():
     fnames = []
     for dirname in args.dirnames:
         fnames += glob.glob(os.path.join(dirname, "rank*h5"))
+    fnames = [os.path.abspath(f) for f in fnames]
 
     print("Combining %d files" % len(fnames))
 
