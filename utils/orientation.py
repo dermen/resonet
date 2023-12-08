@@ -5,13 +5,16 @@ import numpy as np
 import torch
 from scipy.spatial.transform import Rotation
 
-from cctbx import sgtbx, uctbx
-from cctbx.sgtbx.literal_description import  literal_description
-from scitbx.matrix import sqr
-from iotbx import pdb as iotbx_pdb
-from simtbx.nanoBragg import nanoBragg
-from dxtbx.model import Crystal, DetectorFactory, BeamFactory
-
+try:
+    HAS_CCTBX=True
+    from cctbx import sgtbx, uctbx
+    from cctbx.sgtbx.literal_description import  literal_description
+    from scitbx.matrix import sqr
+    from iotbx import pdb as iotbx_pdb
+    from simtbx.nanoBragg import nanoBragg
+    from dxtbx.model import Crystal, DetectorFactory, BeamFactory
+except ModuleNotFoundError:
+    HAS_CCTBX=False
 
 from resonet.sims import process_pdb
 
@@ -192,6 +195,7 @@ class Loss(torch.nn.Module):
 
 
 def make_op_table_using_nanoBragg(outfile, cuda=True):
+    assert HAS_CCTBX
     pdb_path = os.path.join(os.environ["RESONET_SIMDATA"], "pdbs")
     pdb_id_file = os.path.join(pdb_path, "pdb_ids.txt")
     pdb_ids = [p.strip() for p in open(pdb_id_file, "r").readlines()]
