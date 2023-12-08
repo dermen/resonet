@@ -13,10 +13,10 @@ try:
     from iotbx import pdb as iotbx_pdb
     from simtbx.nanoBragg import nanoBragg
     from dxtbx.model import Crystal, DetectorFactory, BeamFactory
+    from resonet.sims import process_pdb
 except ModuleNotFoundError:
     HAS_CCTBX=False
 
-from resonet.sims import process_pdb
 
 
 def Fs_from_pdb(pdb_file):
