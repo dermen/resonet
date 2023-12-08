@@ -561,7 +561,7 @@ def save_checkpoint(filename, epoch, model, optimizer, loss, args):
                 'loss': loss, "args": args}, filename)
 
 
-if __name__ == "__main__":
+def main():
     parser = get_parser()
     args = parser.parse_args()
     train_start_stop = test_start_stop = None
@@ -591,7 +591,6 @@ if __name__ == "__main__":
                 ori_mode=args.oriMode, debug_mode=args.debugMode,
                 use_sgnums=args.useSGNums)
 
-#   TODO
-#   BINARY IMAGE CLASSIFIER -> get in the ballpark
-#   Shell Image regressions -> fine tune using resolution shell
-#   Spotfinding -> MultiHeadedAttenton models
+
+if __name__ == "__main__":
+    main()
