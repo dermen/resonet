@@ -1,13 +1,3 @@
-# diffraction AI code
-
-To use, update your Python path to include the path containing `resonet` folder. 
-
-In other words, if you clone `resonet` in `/home/username/something`, such that the path to `resonet` is `/home/username/something/resonet`, then
-
-```
-export PYTHONPATH=$PYTHONPATH:/home/username/something
-```
-
 # Resonet tutorial
 
 ## Install
@@ -87,7 +77,7 @@ libtbx.refresh
 # Note, migration to PyPi is in progress, however for now one will need to build manually
 # libtbx.python -m pip install resonet
 
-git clone https://github.com/ssrl-px/resonet.git
+git clone --recurse-submodules https://github.com/ssrl-px/resonet.git
 cd resonet
 libtbx.python -m build
 libtbx.python -m pip install dist/resonet-0.1.tar.gz
@@ -165,3 +155,5 @@ resonet-imgfeeder "/path/to/some/images/*cbf" 8
 ```
 
 where the second argument simply specifies the number of processes launched with `resonet-imgeater`. The *eater* will then write the inference results to STDOUT. Note, all images in the GLOB will be processed!
+
+
