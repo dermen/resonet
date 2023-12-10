@@ -1,6 +1,15 @@
 from argparse import ArgumentParser
-from mpi4py import MPI
-COMM = MPI.COMM_WORLD
+try:
+    from mpi4py import MPI
+    COMM = MPI.COMM_WORLD
+except ModuleNotFoundError:
+    class nompi_comm:
+        rank = 0
+        size = 1
+        def reduce(self, val):
+            return val
+    COMM = nompi_comm()
+
 import Pyro4
 import os
 import glob
