@@ -26,7 +26,7 @@ class imageMonster:
         self.kind=kind
 
     @Pyro4.oneway
-    def eat_images(self, glob_s):
+    def eat_images(self, glob_s, max_proc=None):
         # TODO:  add a Break button to break out of the loop using the mouse!
         seen = 0
         Nf = 0
@@ -38,6 +38,8 @@ class imageMonster:
             if COMM.rank==0:
                 print("Found %d shots in %s" % (Nf, glob_s), flush=True)
             for i_f, f in enumerate(fnames):
+                if max_proc is not None and i_f >  max_proc:
+                    break
                 if i_f % COMM.size != COMM.rank:
                     continue
                 t = time.time()
