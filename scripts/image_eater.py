@@ -38,7 +38,7 @@ class imageMonster:
             if COMM.rank==0:
                 print("Found %d shots in %s" % (Nf, glob_s), flush=True)
             for i_f, f in enumerate(fnames):
-                if max_proc is not None and i_f >  max_proc:
+                if max_proc is not None and i_f >=  max_proc:
                     break
                 if i_f % COMM.size != COMM.rank:
                     continue
