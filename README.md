@@ -1,13 +1,17 @@
-# Resonet tutorial
+# Resonet install and tutorial
+----
 
-## Resonet models trained for 1 Angstrom data collected on Pilatus 6M or Eiger 16M detectors:
+
+## Resonet models 
+
+These models were trained for ~1 Angstrom data collected on Pilatus 6M or Eiger 16M detectors:
 
 ```bash
 # for predicting whether diffraction contains overlapping lattices
-wget https://smb.slac.stanford.edu/~public_html/dermen/models/overlapping.nn
+wget https://smb.slac.stanford.edu/~dermen/overlapping.nn
 
 # for predicting per-shot resolution estimates
-wget https://smb.slac.stanford.edu/~public_html/dermen/models/resolution.nn
+wget https://smb.slac.stanford.edu/~dermen/resolution.nn
 ```
 
 ## Install an inference-only (basic) build
@@ -56,7 +60,7 @@ python -m Pyro4.naming &
 
 
 # launch the resonet image Eater
-resonet-imgeater resomodel.nn res50 &
+resonet-imgeater resolution.nn res50 &
 #Rank 0 Initializing predictor
 #Rank 0 is ready to consume images... (followed by a URI)
 ```
@@ -222,7 +226,7 @@ First, one should launch `resonet-imgeater`. The *eater* can be launched as a si
 
 ```
 libtbx.python -m Pyro4.naming &
-mpirun -n 8 resonet-imgeater ./path/to/nety_ep100.nn res50 --gpu &
+mpirun -n 8 resonet-imgeater /path/to/nety_ep100.nn res50 --gpu &
 ```
 
 Note, both of the above jobs were launched in the background. Now, the *eater* process will remain active, while we use `resonet-imgfeeder` to send it images, in this case as [python glob strings](https://docs.python.org/3/library/glob.html):
