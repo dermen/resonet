@@ -1,5 +1,15 @@
 # Resonet tutorial
 
+## Resonet models trained for 1 Angstrom data collected on Pilatus 6M or Eiger 16M detectors:
+
+```bash
+# for predicting whether diffraction contains overlapping lattices
+wget https://smb.slac.stanford.edu/~public_html/dermen/models/overlapping.nn
+
+# for predicting per-shot resolution estimates
+wget https://smb.slac.stanford.edu/~public_html/dermen/models/resolution.nn
+```
+
 ## Install an inference-only (basic) build
 
 These installation instructions are for those who just wish to download the resonet models and test them on synchrotron image files. Multi-panel detectors are technically supported, but no official script exists [yet] to handle them.
@@ -222,4 +232,3 @@ resonet-imgfeeder "/path/to/some/images/*cbf" 8
 ```
 
 where the second argument simply specifies the number of processes launched with `resonet-imgeater`. The *eater* will then write the inference results to STDOUT. Note, all images in the GLOB will be processed!
-
