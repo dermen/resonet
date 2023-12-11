@@ -1,8 +1,13 @@
 # Resonet install and tutorial
-----
 
+1. <a href="#models">Download models </a>
 
-## Resonet models 
+2. <a href="#basic">Basic (inference only) intallation </a>
+
+3. <a href="#advanced">Advanced (simulation-ready) installation </a>
+
+<a id="models"></a>
+## Download models 
 
 These models were trained for ~1 Angstrom data collected on Pilatus 6M or Eiger 16M detectors:
 
@@ -14,6 +19,7 @@ wget https://smb.slac.stanford.edu/~dermen/overlapping.nn
 wget https://smb.slac.stanford.edu/~dermen/resolution.nn
 ```
 
+<a id="basic"></a>
 ## Install an inference-only (basic) build
 
 These installation instructions are for those who just wish to download the resonet models and test them on synchrotron image files. Multi-panel detectors are technically supported, but no official script exists [yet] to handle them.
@@ -80,7 +86,7 @@ resonet-imgfeeder "/path/to/somewhere/*cbf" 1 --maxProc 5
 
 The main benefit will come from running the resonet models on a GPU, which requires a proper cuda installation. You might need to fine-tune the PyTorch installation to match the CUDA version. In our experience, multiple processes can share the GPU device(s) in a combined MPI-GPU environment to get very high image throughput! Resonet is currently in-use at the [SSRL macromolecular crystallography beamlines](https://smb.slac.stanford.edu/) through the Python-based monitoring software, [interceptor](https://github.com/ssrl-px/interceptor/blob/master/src/interceptor/connector/processor.py). Email the owner of this repository for testing / installation / or general questions.
 
-
+<a id="advanced"></a>
 ## Install a full simulation-ready build
 
 Note: this install is only necessary if one wishes to synthesize training data using CCTBX.
@@ -165,7 +171,7 @@ libtbx.python -m pip install dist/resonet-0.1.tar.gz
 libtbx.python patch_shebangs.py  # only necessary is using CCTBX build for simulation functionality
 ```
 
-## Synthesize training data
+### Synthesize training data
 With the above environment, you should now download the simulation meta data:
 
 ```
@@ -200,7 +206,7 @@ resonet-mergefiles test_shots test_shots/master.h5
 This creates a `master.h5` which can be passed directly to the training script.
 
 
-## Train the model
+### Train the model
 The script `net.py` has a lot of functionality, but is still under heavy development. Use it as follows:
 
 ```
@@ -209,14 +215,14 @@ resonet-train  100 test_shots/master.h5  test_opt --labelSel one_over_reso --use
 
 The first argument is the number of training epochs. The second argument is the input, and the third argument is the output folder where results and a log file will be written. Note, the first epoch is usually slower than the subsequent epochs.
 
-## Check the results
+### Check the results
 One can plot the training progress:
 
 ```
 resonet-plotloss test_opt/train.log
 ```
 
-## Inference
+### Inference
 
 Let's assume a model has been trained, and it is time to test its predictions for some images. 
 
