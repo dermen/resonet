@@ -17,9 +17,9 @@ git clone https://github.com/nksauter/fv5080.git
 Then, get some models
 
 ```
-wget https://smb.slac.stanford.edu/~public_html/dermen/models/overlapping.nn
-wget https://smb.slac.stanford.edu/~public_html/dermen/models/reso_orig.nn
-wget https://smb.slac.stanford.edu/~public_html/dermen/models/reso_retrained.nn
+wget https://smb.slac.stanford.edu/~dermen/overlapping.nn
+wget https://smb.slac.stanford.edu/~dermen/reso_orig.nn
+wget https://smb.slac.stanford.edu/~dermen/reso_retrained.nn
 ```
 
 Then, run the command
