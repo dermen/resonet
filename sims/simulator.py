@@ -69,10 +69,15 @@ class Simulator:
 
         if mos_dom_override is not None:
             mos_dom = mos_dom_override
-        n_mos = mos_dom//2
-        if n_mos % 2 == 1:
-            n_mos += 1
+        if mos_dom != 1:
+            n_mos = mos_dom//2
+            if n_mos % 2 == 1:
+                n_mos += 1
+        else:
+            n_mos = 1
         C.n_mos_domains = n_mos
+        if n_mos==1:
+            C.mos_spread_deg = 0
 
         S = sim_data.SimData()
         S.crystal = C
