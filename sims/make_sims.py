@@ -73,6 +73,8 @@ def random_bg(D,B, stol_name, roi=None):
     funky_bg = nb_utils.sim_background(D, B, [B.get_wavelength()], [1], paths_and_const.FLUX,
                 molecular_weight=12, sample_thick_mm=paths_and_const.XTALSIZE_MM,
                 Fbg_vs_stol=load_stol(stol_name), roi=roi)
+
+
     return funky_bg.as_numpy_array()
 
 

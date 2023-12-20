@@ -5,10 +5,12 @@ from simtbx.diffBragg.utils import ENERGY_CONV
 from dxtbx.model import Detector, Panel
 import numpy as np
 from scipy.spatial.transform import Rotation
+from simtbx import get_exascale
+import time
 
-from simtbx.nanoBragg import sim_data
+from simtbx.nanoBragg import nanoBragg, sim_data
+from simtbx.nanoBragg.utils import get_xray_beams
 from dials.array_family import flex
-
 
 from resonet.sims import make_sims, make_crystal, paths_and_const
 
@@ -27,12 +29,15 @@ class Simulator:
                                       divergence=paths_and_const.DIVERGENCE_MRAD / 1e3 * 180 / np.pi)
         self.cuda=cuda
         self.verbose = verbose
+        self.gpud = get_exascale("gpu_detector", "cuda")
+        self.exascale_api = get_exascale("exascale_api", "cuda")
+
 
     def simulate(self, rot_mat=None, multi_lattice_chance=0, max_lat=2, mos_min_max=None,
                  pdb_name=None, plastic_stol=None, dev=0, mos_dom_override=None, vary_background_scale=False,
                  randomize_dist=None, randomize_wavelen=None, randomize_center=False,
                  randomize_scale=False, low_bg_chance=0, uniform_reso=False, roi=None,
-                 old_multi_spread=True):
+                 old_multi_spread=True, alloc=True):
         """
 
         :param rot_mat: specific orientation matrix for crystal
@@ -106,24 +111,25 @@ class Simulator:
                 new_cent_x, new_cent_y = np.random.uniform(-cent_window_pix, cent_window_pix, 2)
                 shot_det = shift_center(shot_det, new_cent_x, new_cent_y)
 
-            air_and_water = make_sims.get_background(shot_det, shot_beam, roi=roi)
             # stol of every pixel:
             STOL = make_sims.get_theta_map(shot_det, shot_beam)
 
             nb_beam = make_crystal.load_beam(shot_beam,
                                           divergence=paths_and_const.DIVERGENCE_MRAD / 1e3 * 180 / np.pi)
+            redo_air_water=True
 
         else:
+            redo_air_water = False
             air_and_water = self.air_and_water
             STOL = self.STOL
             nb_beam = self.nb_beam
             shot_beam = self.BEAM
             shot_det = self.DET
 
+
         S.beam = nb_beam
         S.detector = shot_det
         S.instantiate_nanoBragg(oversample=1)
-
         # for this detector, this is the minimum resolution allowed
         high_reso = shot_det.get_max_resolution(shot_beam.get_s0())
         if roi is not None:
@@ -178,33 +184,55 @@ class Simulator:
             plastic_stol = np.random.choice(paths_and_const.RANDOM_STOLS)
         else:
             assert os.path.exists(plastic_stol)
-        plastic = make_sims.random_bg(shot_det, shot_beam, plastic_stol, roi=roi)
 
         if uniform_reso:
             reso, Bfac_img = make_sims.get_Bfac_img(STOL,high_reso)
         else:
             reso, Bfac_img = make_sims.get_Bfac_img(STOL)
 
-        bg = air_and_water + plastic
+        spots_scaled = spots*Bfac_img*paths_and_const.VOL
+
+        # OLD======================
+        #t = time.time()
+        #if redo_air_water:
+        #    # TODO: use gpu_detector.add_background
+        #    air_and_water = make_sims.get_background(shot_det, shot_beam, roi=roi)
+        #plastic = make_sims.random_bg(shot_det, shot_beam, plastic_stol, roi=roi)
+        #bg = air_and_water + plastic
         bg_scale = 1
         if vary_background_scale:
             # originally, bg scale was drawn like this
             #bg_scale = np.random.choice([0.0125, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 1.25])
-            
+
             low_bg_scale = np.random.choice([0.01, 0.05, 0.05,  0.1])
             norm_bg_scale = np.random.choice([1, 1, 1.25, 1.5, 2])
             is_low_bg = np.random.random() < low_bg_chance
             bg_scale = low_bg_scale if is_low_bg else norm_bg_scale
             if self.verbose:
                 print("Scaling background by %.3f" % bg_scale)
+        #t1 = time.time()-t
+        #test_img = spots_scaled + bg*bg_scale
 
-        img = spots*Bfac_img*paths_and_const.VOL + bg*bg_scale
+        #======== ENDOLD
+        # NEW background
+        t = time.time()
+        spots2 = spots_scaled.copy()
+        img = self.sim_background(shot_det,
+            shot_beam,
+            dev,
+            plastic_stol,
+            spots_scaled,
+            self.air_and_water,
+            redo_air_water,
+            bg_scale)
+        #img = img2.as_numpy_array().reshape(img.shape)
+        #plastic2 = plastic2.as_numpy_array().reshape(img.shape)
+        t2 = time.time()-t
 
-        make_sims.set_noise(S.D)
-
-        S.D.raw_pixels = flex.double(img.ravel())
-        S.D.add_noise()
-        noise_img = S.D.raw_pixels.as_numpy_array().reshape(img.shape)
+        #make_sims.set_noise(S.D)
+        #S.D.raw_pixels = img
+        #S.D.add_noise()
+        noise_img = img.as_numpy_array().reshape(spots_scaled.shape)
 
         param_dict = {"reso": reso,
                       "multi_lattice": use_multi,
@@ -222,7 +250,75 @@ class Simulator:
 
         S.D.free_all()
 
-        return param_dict, noise_img
+        return param_dict, spots2, noise_img
+
+    def sim_background(self, det, beam,
+                dev, stol_name, spots_scaled, last_air_water, redo_air_water=False, bg_scale=False):
+
+        total_flux = paths_and_const.FLUX
+        spectrum = [(beam.get_wavelength(), 1)]
+        xray_beams = get_xray_beams(spectrum, beam)
+
+        SIM = nanoBragg(det, beam, panel_id=0)
+        #SIM.beamsize_mm = paths_and_const.beam_SIZE_MM
+        SIM.xray_beams = xray_beams
+        SIM.flux = paths_and_const.FLUX
+        SIM.device_Id = dev
+
+        SIM.Fbg_vs_stol = make_sims.load_stol(stol_name)
+        SIM.amorphous_sample_thick_mm = paths_and_const.XTALSIZE_MM
+        SIM.amorphous_density_gcm3 = 1
+        SIM.amorphous_molecular_weight_Da = 12
+
+        gpu_simulation = self.exascale_api(nanoBragg=SIM)
+        gpu_simulation.allocate()
+        gpu_detector = self.gpud(deviceId=dev, detector=det, beam=beam)
+        gpu_detector.each_image_allocate()
+        gpu_detector.setup_random_states()  # how long is this
+        zeros = flex.double(np.zeros(spots_scaled.size))
+        gpu_detector.set_raw_pixels(zeros)
+
+        # add the plastic
+        gpu_simulation.add_background(gpu_detector)
+
+        # OLD======================
+        if redo_air_water:
+            # AIR
+            SIM.Fbg_vs_stol = make_sims.load_stol(paths_and_const.AIR_STOL)
+            SIM.amorphous_sample_thick_mm = 5
+            SIM.amorphous_density_gcm3 = 1.2e-3
+            SIM.amorphous_sample_molecular_weight_Da = 14  # nitrogen = N2
+            gpu_simulation.add_background(gpu_detector)
+
+            # WATER
+            SIM.Fbg_vs_stol = make_sims.load_stol(paths_and_const.WATER_STOL)
+            SIM.amorphous_sample_thick_mm = paths_and_const.XTALSIZE_MM
+            SIM.amorphous_density_gcm3 = 1
+            SIM.amorphous_sample_molecular_weight_Da = 18
+            gpu_simulation.add_background(gpu_detector)
+        else:
+            flex_air_water = flex.double(last_air_water)
+            gpu_detector.offset_in_place(flex_air_water)
+
+        if bg_scale != 1:
+            gpu_detector.scale_in_place(bg_scale)
+
+        flex_spots = flex.double(spots_scaled)
+        gpu_detector.offset_in_place(flex_spots)
+
+        # NOISE:
+        SIM.detector_calibration_noise_pct = 3
+        SIM.adc_offset_adu = 0
+        SIM.quantum_gain = 1
+        SIM.readout_noise_adu = 0
+        gpu_detector.noisify(SIM.flicker_noise_pct, SIM.detector_calibration_noise_pct/100., SIM.readout_noise_adu,
+                             SIM.quantum_gain, SIM.adc_offset_adu, 0)
+        nominal_data = gpu_detector.get_raw_pixels()
+        gpu_detector.each_image_free()  # deallocate GPU arrays
+        gpu_detector.free_random_states()
+        return nominal_data
+
+
 
 
 def reso2radius(reso, DET, BEAM):
@@ -278,3 +374,5 @@ def shift_distance(det, delta_z):
     new_pan = Panel.from_dict(dd)
     new_det.add_panel(new_pan)
     return new_det
+
+

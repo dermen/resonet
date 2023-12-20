@@ -1,5 +1,4 @@
 
-
 def main():
     from resonet.sims.main import args, run
     from libtbx.mpi4py import MPI

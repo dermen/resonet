@@ -3,9 +3,13 @@ from argparse import ArgumentParser
 from argparse import ArgumentDefaultsHelpFormatter as arg_formatter
 import sys
 from resonet.sims.paths_and_const import PDB_MAP
+from cctbx import sgtbx
 import torch
+from iotbx import pdb as PDB
+from scitbx.matrix import sqr
 from resonet.utils.eval_model import to_tens
 from resonet.utils import counter_utils
+from dxtbx.model import Crystal
 
 
 def args(use_joblib=False):
@@ -51,6 +55,7 @@ def args(use_joblib=False):
     parser.add_argument("--lowBgChance", type=float, default=0, help="probability to simulate a log background shot (default=0)")
     parser.add_argument("--uniReso", action="store_true", help="uniformly sample resolution per shot, up to the detector maximum")
     parser.add_argument("--randQuad", action="store_true", help="randomly choose a quad to write per image")
+    parser.add_argument("--compress", action="store_true", help="store compressed files")
     parser.add_argument("--centerCrop", action="store_true", help="Alternative to quad downsampling, downsample whole image by a factor and "
                                                                   "crop around the center")
     if use_joblib:
@@ -144,7 +149,10 @@ def run(args, seeds, jid, njobs):
     Nshot = len(np.array_split(np.arange(args.nshot), njobs)[jid])
 
     # write command line info to output folder
-    outname = os.path.join(args.outdir, "rank%d.h5" %jid)
+    prefix = "name"
+    if args.compress:
+        prefix = "compressed"
+    outname = os.path.join(args.outdir, "%s%d.h5" %(prefix,jid))
     if jid==0:
         cmd = os.path.join(args.outdir, "commandline.txt")
         with open(cmd, "w") as o:
@@ -156,14 +164,22 @@ def run(args, seeds, jid, njobs):
         ds_shape = 512,512
         if args.centerCrop:
             ds_shape = 832, 832
+        comp_args = {"dtype": np.float32}
+
+        if args.compress:
+            comp_args["compression_opts"] = 4
+            comp_args["compression"] = "gzip"
+            comp_args["shuffle"] = True
+            comp_args["dtype"] = np.uint16
         dset = out.create_dataset("images",
                                   shape=(Nshot,) + ds_shape,
-                                  dtype=np.float32)
+                                  **comp_args)
 
+        comp_args.pop("dtype")
         if args.saveRaw:
             raw_dset = out.create_dataset("raw_images",
                                           shape=(Nshot,) + (ydim, xdim),
-                                          dtype=np.float32)
+                                          dtype=np.float32, **comp_args)
 
         param_names = ["reso", "one_over_reso",
                        "radius", "one_over_radius",
@@ -175,8 +191,8 @@ def run(args, seeds, jid, njobs):
                        "Na", "Nb", "Nc", "pdb", "mos_spread","xtal_scale"] \
                       + ["r%d" % x for x in range(1, 10)]
         geom_names = ["detdist", "wavelen", "pixsize", "xdim", "ydim"]
-        lab_dset = out.create_dataset("labels", dtype=np.float32, shape=(Nshot, len(param_names)) )
-        geom_dset = out.create_dataset("geom", dtype=np.float32, shape=(Nshot, len(geom_names)))
+        lab_dset = out.create_dataset("labels", dtype=np.float32, shape=(Nshot, len(param_names)) , **comp_args)
+        geom_dset = out.create_dataset("geom", dtype=np.float32, shape=(Nshot, len(geom_names)), **comp_args)
         lab_dset.attrs["names"] = param_names
         lab_dset.attrs["pdbmap"] = list(PDB_MAP)
         geom_dset.attrs["names"] = geom_names
@@ -220,7 +236,7 @@ def run(args, seeds, jid, njobs):
             random_wave = lambda: np.random.uniform(en1, en2)
         for i_shot in range(Nshot):
             t = time.time()
-            params, img = HS.simulate(rot_mat=rotMats[i_shot],
+            params, spots, img = HS.simulate(rot_mat=rotMats[i_shot],
                                       multi_lattice_chance=args.multiChance,
                                       mos_min_max=args.mosMinMax,
                                       max_lat=args.maxLat,
@@ -233,6 +249,51 @@ def run(args, seeds, jid, njobs):
                                       randomize_scale=args.randScale,
                                       low_bg_chance=args.lowBgChance,
                                       uniform_reso=args.uniReso)
+
+
+
+            #pdb = params['pdb_name']
+            #pdb_path = os.path.join(pdb, os.path.basename(pdb) + ".pdb")
+            #P = PDB.input(pdb_path)
+            #uc = P.crystal_symmetry().unit_cell()
+            #B = sqr(uc.orthogonalization_matrix())
+            #a = B[0], B[3], B[6]
+            #b = B[1], B[4], B[7]
+            #c = B[2], B[5], B[8]
+            #sg = P.crystal_symmetry().space_group()
+            #C_sg = Crystal(a, b, c, sg)
+            #to_p1_op = sg.info().change_of_basis_op_to_primitive_setting()
+
+            #Oi = sqr(to_p1_op.c().r().transpose().as_double())
+            ##B = B*Oi
+            #ops = sg.build_derived_laue_group().all_ops()
+            #ops = [op for op in ops if op.r().determinant()==1]
+            #for i_op, op in enumerate(ops):
+            #    R = sqr(op.r().as_double())
+            #    U_o = B.inverse() * R * B
+            #    #cb_op = sgtbx.change_of_basis_op(op)
+            #    #C_o = C_sg.change_basis(cb_op).change_basis(to_p1_op)
+            #    #U_o = C_o.get_U()
+            #    rot2 = np.dot(rotMats[i_shot], np.reshape(U_o, (3,3)))
+
+            #    print("Doing op %d / %d" %(i_op+1, len(ops)), op.as_xyz())
+            #    params2, spots2, img2 = HS.simulate(rot_mat=rot2,
+            #                                     multi_lattice_chance=args.multiChance,
+            #                                     mos_min_max=args.mosMinMax,
+            #                                     max_lat=args.maxLat,
+            #                                     dev=dev, mos_dom_override=args.nmos,
+            #                                     vary_background_scale=args.varyBgScale,
+            #                                     pdb_name=args.pdbName,
+            #                                     randomize_dist=random_dist,
+            #                                     randomize_center=args.randCent,
+            #                                     randomize_wavelen=random_wave,
+            #                                     randomize_scale=args.randScale,
+            #                                     low_bg_chance=args.lowBgChance,
+            #                                     uniform_reso=args.uniReso)
+            #    if not np.allclose(spots, spots2):
+            #        from IPython import embed;embed()
+            #    #assert np.allclose(spots, spots2)
+            #exit()
 
             # at what pixel radius does this resolution corresond to
             radius = reso2radius(params["reso"], DET, BEAM)
@@ -337,6 +398,10 @@ def run(args, seeds, jid, njobs):
 
             if args.saveRaw:
                 raw_dset[i_shot] = img
+            if args.compress:
+                IMAX=np.sqrt(65535)
+                ds_img[ds_img > IMAX] = IMAX
+                ds_img = ds_img.numpy().astype(np.uint16)
 
             dset[i_shot] =ds_img
             geom_dset[i_shot] = geom_array

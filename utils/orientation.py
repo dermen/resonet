@@ -234,6 +234,8 @@ def make_op_table_using_nanoBragg(outfile, cuda=True):
         # to p1 matrix, these should be identical:
         Oi_test = np.linalg.inv(np.reshape(to_p1_op.c_inv().r().transpose().as_double(), (3, 3)))
         Oi = np.reshape(to_p1_op.c().r().transpose().as_double(), (3, 3))
+        Oi_sqr = sqr(Oi.ravel())
+        assert Oi_sqr.is_r3_rotation_matrix_rms()
         assert np.allclose(Oi, Oi_test)
 
         # real space B-matrix in P1

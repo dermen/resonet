@@ -71,7 +71,7 @@ def load_crystal(folder, rot_mat=None, scale=1, cut_1p2=False):
     C.xtal_shape = paths_and_const.SHAPE
     if rot_mat is not None:
         Umat = C.dxtbx_crystal.get_U()
-        Umat = np.dot(rot_mat, np.reshape(Umat,(3,3)))
+        Umat = np.dot(np.reshape(rot_mat, (3,3)), np.reshape(Umat,(3,3)))
         C.dxtbx_crystal.set_U(tuple(Umat.ravel()))
     C.Ncells_abc = get_Nabc(P.p1_ucell, scale)
     fmodel_file = os.path.join(folder, "fmodel.mtz")
@@ -80,6 +80,7 @@ def load_crystal(folder, rot_mat=None, scale=1, cut_1p2=False):
     ma = any_reflection_file(fmodel_file).as_miller_arrays()[0]
     if ma.is_complex_array():
         ma = ma.as_amplitude_array()
+    #from IPython import embed;embed()
     C.miller_array = ma
     C.symbol = ma.space_group_info().type().lookup_symbol()
     return C

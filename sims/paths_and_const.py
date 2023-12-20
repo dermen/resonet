@@ -28,7 +28,8 @@ BEAM_SIZE_MM = 0.03
 FLUX = 4e11  # photons per pulse
 DIVERGENCE_MRAD = 0.02
 XTALSIZE_MM = 0.025
-DOMAINSIZE_MM = 5e-5
+#DOMAINSIZE_MM = 5e-5
+DOMAINSIZE_MM = 15e-5
 VOL = (XTALSIZE_MM / DOMAINSIZE_MM)**3  # scales the diffraction
 FIX_RES = 1.5 #None # 0.5/.29989  # optionally fix the resolution for all simulations ...
 
@@ -37,7 +38,7 @@ CUT_1P2 = False  # try loading the 1p2 fmodel files (assuming they were created)
 # these are the PDB folders containing pdb files and P1.hkl files
 RANDOM_PDBS = [d for d in glob.glob(os.path.join(dirname, "pdbs/*")) if len(os.path.basename(d))==4 and os.path.isdir(d)]
 
-SHAPE = "gauss"
+SHAPE = "gauss_star"
 
 PDB_MAP = {name: i for i, name in enumerate(RANDOM_PDBS)}
 SGOP_FILE = os.path.join(dirname, "pdb_ops.npy")
