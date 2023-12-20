@@ -14,7 +14,7 @@ Will create new files in folder baxter.4 using 10 processes
 """
 
 
-def proc_main(jid):
+def proc_main(jid, args):
 
     fnames = glob.glob(args.dirname + "/compressed*.h5")
 
@@ -64,7 +64,7 @@ def main():
             print("Copyfile", i + 1, "/", len(fnames))
             f2 = f.replace("rank", "compressed")
             os.rename(f, f2)
-    Parallel(n_jobs=args.njobs)(delayed(proc_main)(jid) for jid in range(args.njobs))
+    Parallel(n_jobs=args.njobs)(delayed(proc_main)(jid, args) for jid in range(args.njobs))
 
 if __name__=="__main__":
     main()
