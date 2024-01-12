@@ -8,6 +8,8 @@ def main():
     parser.add_argument("dirnames", nargs="+", type=str, help="output folders from runme.py or runme_joblib.py")
     parser.add_argument("outname", type=str, help="name of the  master file")
     parser.add_argument("--moreKeys", nargs="+", type=str, default=[], help="names of additional datasets to virtualize. These should be present in all rank* files!")
+    parser.add_argument("--prefix", type=str, default="rank",
+            help="merge h5 files that start with this (default: rank)")
     args = parser.parse_args()
 
     """
@@ -17,7 +19,7 @@ def main():
 
     fnames = []
     for dirname in args.dirnames:
-        fnames += glob.glob(os.path.join(dirname, "rank*h5"))
+        fnames += glob.glob(os.path.join(dirname, "%s*h5" % args.prefix))
     fnames = [os.path.abspath(f) for f in fnames]
 
     print("Combining %d files" % len(fnames))

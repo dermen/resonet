@@ -11,7 +11,7 @@ class H5SimDataDset(Dataset):
 
     def __init__(self, h5name, dev=None, labels="labels", images="images",
                  start=None, stop=None, label_sel=None, use_geom=False, transform=None,
-                 half_precision=False, use_sgnums=False):
+                 half_precision=False, use_sgnums=False, convert_to_float=False):
         """
 
         :param h5name: hdf5 master file written by resonet/scripts/merge_h5s.py
@@ -27,6 +27,7 @@ class H5SimDataDset(Dataset):
             Otherwise, each iter returns 2-tuple (images,labels)
             The geom tensor can be used as a secondary input to certain models
         :param use_sgnums:
+        :param convert_to_float: automatically convert to float32 if h5 data are in compressed format
         """
         if label_sel is None:
             label_sel = [0]
@@ -71,6 +72,7 @@ class H5SimDataDset(Dataset):
         self.pdb_id_to_num = None
         self.sgnums = None
         self._setup_sgmaps()
+        self.convert_to_float = convert_to_float
 
     def _setup_sgmaps(self):
         if not self.use_sgnums:
@@ -100,8 +102,8 @@ class H5SimDataDset(Dataset):
     def open(self):
         self.h5 = h5py.File(self.h5name, "r")
         self.images = self.h5[self.images_name]
-        assert self.images.dtype in [np.float16, np.float32]
-        if self.images.dtype!=np.float32:
+        assert self.images.dtype in [np.uint16, np.float16, np.float32]
+        if self.images.dtype!=np.float32 and not self.convert_to_float:
             raise ValueError("Images should be type float32!")
         self.labels = self.h5[self.labels_name][:, self.label_sel]
         lab_dt = self.labels.dtype
@@ -166,6 +168,8 @@ class H5SimDataDset(Dataset):
         if self.half_precision and not self.images.dtype==np.float16:
             #print("Warning, converting images from float32 to float16. This could slow things down.")
             img_dat = img_dat.astype(np.float16)
+        if self.convert_to_float and not self.images.dtype==np.float32:
+            img_dat = img_dat.astype(np.float32)
         img_dat = torch.tensor(img_dat).to(self.dev)
         # if we are applying image augmentation
         if self.transform:

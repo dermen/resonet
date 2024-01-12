@@ -350,7 +350,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
     common_args = {"dev":dev,"labels": h5label, "images": h5imgs,
                    "use_geom": use_geom, "label_sel": label_sel,
                    "half_precision": half_precision,
-                   "use_sgnums": use_sgnums}
+                   "use_sgnums": use_sgnums, "convert_to_float": True}
 
     all_imgs = H5SimDataDset(h5input,
                                start=0, stop=ntrain + ntest, transform=transform, **common_args)
