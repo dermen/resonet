@@ -6,6 +6,7 @@ from cctbx import miller, crystal
 from simtbx.nanoBragg import nanoBragg_crystal, nanoBragg_beam
 from iotbx.reflection_file_reader import any_reflection_file
 import numpy as np
+from simtbx.diffBragg import utils as db_utils
 
 
 from resonet.sims import paths_and_const
@@ -95,8 +96,15 @@ def load_beam(dxtbx_beam, divergence=0):
     B = nanoBragg_beam.NBbeam()
     B.size_mm = paths_and_const.BEAM_SIZE_MM
     B.unit_s0 = dxtbx_beam.get_unit_s0()
-    B.spectrum = [(dxtbx_beam.get_wavelength(), paths_and_const.FLUX)]
+    if paths_and_const.LAUE_MODE and paths_and_const.LAMBDA_FILE is not None:
+        B.spectrum = db_utils.load_spectra_file(paths_and_const.LAMBDA_FILE,
+                                                total_flux=paths_and_const.FLUX,
+                                                as_spectrum=True)
+        B._undo_nanoBragg_norm_by_nbeams = False
+    else:
+        B.spectrum = [(dxtbx_beam.get_wavelength(), paths_and_const.FLUX)]
     B.flux = paths_and_const.FLUX
-    B.divergence = divergence
+    B.divergence_mrad = paths_and_const.DIVERGENCE_MRAD
+    B.divsteps = paths_and_const.DIVERGENCE_NSTEPS
     return B
 

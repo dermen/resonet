@@ -122,7 +122,7 @@ class Simulator:
 
         S.beam = nb_beam
         S.detector = shot_det
-        S.instantiate_nanoBragg(oversample=1)
+        S.instantiate_diffBragg(oversample=1)
 
         # for this detector, this is the minimum resolution allowed
         high_reso = shot_det.get_max_resolution(shot_beam.get_s0())
@@ -131,12 +131,18 @@ class Simulator:
         if self.verbose:
             S.D.show_params()
             print("Simulating spots!", flush=True)
-        if self.cuda:
-            S.D.device_Id = dev
-            S.D.add_nanoBragg_spots_cuda()
-        else:
-            S.D.add_nanoBragg_spots()
-        spots = S.D.raw_pixels.as_numpy_array()
+        S.D.device_Id = dev
+        S.D.store_ave_wavelength_image = paths_and_const.LAUE_MODE
+        S.D.add_diffBragg_spots_full()
+        #if self.cuda:
+        #    S.D.device_Id = dev
+        #    S.D.add_nanoBragg_spots_cuda()
+        #else:
+        #    S.D.add_nanoBragg_spots()
+        spots = S.D.raw_pixels_roi.as_numpy_array()
+        xdim, ydim = shot_det[0].get_image_size()
+        img_sh = ydim, xdim
+        spots = spots.reshape(img_sh)
         use_multi = np.random.random() < multi_lattice_chance
         ang_sigma = 0
         num_additional_lat = 0
@@ -172,6 +178,9 @@ class Simulator:
                 spots += S.D.raw_pixels.as_numpy_array()
             spots /= (num_additional_lat+1)
 
+        wavelen_data = None
+        if paths_and_const.LAUE_MODE:
+            wavelen_data = S.D.ave_wavelength_image().as_numpy_array().reshape(img_sh)
         if self.verbose:
             print("sim random bg", flush=True)
         if plastic_stol is None:
@@ -204,7 +213,7 @@ class Simulator:
 
         S.D.raw_pixels = flex.double(img.ravel())
         S.D.add_noise()
-        noise_img = S.D.raw_pixels.as_numpy_array().reshape(img.shape)
+        noise_img = S.D.raw_pixels.as_numpy_array().reshape(img_sh)
 
         param_dict = {"reso": reso,
                       "multi_lattice": use_multi,
@@ -218,7 +227,8 @@ class Simulator:
                       "pdb_name": pdb_name, 
                       "mos_spread": mos_spread,
                       "crystal_scale": crystal_scale,
-                      "Umat": S.crystal.dxtbx_crystal.get_U()}
+                      "Umat": S.crystal.dxtbx_crystal.get_U(),
+                      "wavelen_data": wavelen_data}
 
         S.D.free_all()
 

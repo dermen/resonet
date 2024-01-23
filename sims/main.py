@@ -6,6 +6,7 @@ from resonet.sims.paths_and_const import PDB_MAP
 import torch
 from resonet.utils.eval_model import to_tens
 from resonet.utils import counter_utils
+from resonet.sims import paths_and_const
 
 
 def args(use_joblib=False):
@@ -305,12 +306,21 @@ def run(args, seeds, jid, njobs):
             if xdim==2463:  # Pilatus 6M
                 quad_ds_fact = 2
                 center_ds_fact = 3
+            elif xdim == 3840:
+                quad_ds_fact = 3
+                center_ds_fact = 4
             elif xdim==4096:  # Mar
                 quad_ds_fact = 4
                 center_ds_fact = 5
             else:  # Eiger
                 quad_ds_fact = 4
                 center_ds_fact = 5
+
+            if paths_and_const.LAUE_MODE:
+                ave_pool = counter_utils.mx_gamma(stride=center_ds_fact, use_mean=True)
+                ds_wavelen = counter_utils.process_image(params['wavelen_data'],
+                                                         ave_pool, useSqrt=False)[0]
+            #from IPython import embed;embed()
 
             if args.centerCrop:
                 max_pool = counter_utils.mx_gamma(stride=center_ds_fact)

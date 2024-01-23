@@ -36,18 +36,22 @@ def process_image(img, cond_meth, useSqrt=True, lt=0, dev="cpu"):
     return cond_img
 
 
-def mx_gamma(dev=None, stride=3):
+def mx_gamma(dev=None, stride=3, use_mean=False):
     """
 
     Parameters
     ----------
     dev: torch device
     factor: downsampling factor (should be 3 for Pilatus 6M and 5 for Eiger 16M)
+    use_mean: bool, use mean instead of max for pooling
     Returns
     -------
     Torch Compose object
     """
-    mp = torch.nn.MaxPool2d(stride, stride=stride)
+    if use_mean:
+        mp = torch.nn.AvgPool2d(stride, stride=stride)
+    else:
+        mp = torch.nn.MaxPool2d(stride, stride=stride)
     if dev is not None:
         mp = mp.to(dev)
     tran = torchvision.transforms.Compose([
