@@ -24,10 +24,14 @@ def strip_names_in_state(orig_state):
     return new_state
 
 
-def load_model(state_name, arch="res50"):
+def load_model(state_name, arch="res50", ori_mode=False):
     assert HAS_TORCH
     assert arch in ARCHES
-    model = ARCHES[arch](dev="cpu")
+    kwargs = {"dev": "cpu"}
+    if ori_mode:
+        kwargs["nout"] = 6
+    model = ARCHES[arch](**kwargs)
+    model.ori_mode = ori_mode
     temp = torch.load(state_name, map_location=torch.device('cpu'))
     state = OrderedDict()
     for k,v in temp.items():

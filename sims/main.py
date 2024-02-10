@@ -41,6 +41,7 @@ def args(use_joblib=False):
     parser.add_argument("--randDistChoice", default=None, nargs="+", type=float, help="If provided, and if --randDist, then detdist will be chosen randomly for each shot from these values (default is None)")
     parser.add_argument("--randWaveRange", nargs=2, type=float, default=[10000,13000], help="if randWave, then energies will be drawn uniformly in this range for each shots wavelength")
     parser.add_argument("--randCent", action="store_true", help="randomize the beam center")
+    parser.add_argument("--randAxis", action="store_true", help="a random axis will be chosen, then, for all simulations, each crystal will be rotated a random amount about that axis. This supercedes twoAxisOnly and axisRotOnly")
     parser.add_argument("--randWave", action="store_true", help="randomize the beam wavelength")
     parser.add_argument("--randScale", action="store_true", help="randomize the crystal domain size")
     parser.add_argument("--axisRotOnly", choices=[0,1,2], type=int, default=None, help="Rotate the crystals about soecified axis (as a control)")
@@ -55,6 +56,7 @@ def args(use_joblib=False):
     parser.add_argument("--compress", action="store_true", help="store compressed files")
     parser.add_argument("--centerCrop", action="store_true", help="Alternative to quad downsampling, downsample whole image by a factor and "
                                                                   "crop around the center")
+    parser.add_argument("--sanityTestOps", action="store_true", help="If True, then ensure application of operators in the SGOPS file produce the same diffraction pattern")
     if use_joblib:
         parser.add_argument("--njobs", default=None, type=int, help="number of jobs")
     args = parser.parse_args()
@@ -66,7 +68,7 @@ def args(use_joblib=False):
     return parser.parse_args()
 
 
-def run(args, seeds, jid, njobs):
+def run(args, seeds, jid, njobs, gvec=None):
     """
 
     :param args: instance of the args() method in this file
@@ -125,6 +127,21 @@ def run(args, seeds, jid, njobs):
         if args.mask is not None:
             mask = np.load(args.mask)
             assert len(mask.shape) == 2
+    # TODO: check whether factor is meant to be replaced totally by quad_ds_fact, and adjust rest of code accordingly
+    # process the raw images according to detector model
+    if xdim == 2463:  # Pilatus 6M
+        quad_ds_fact = 2
+        center_ds_fact = 3
+    elif xdim == 3840:
+        quad_ds_fact = 3
+        center_ds_fact = 4
+    elif xdim == 4096:  # Mar
+        quad_ds_fact = 4
+        center_ds_fact = 5
+    else:  # Eiger
+        quad_ds_fact = 4
+        center_ds_fact = 5
+    cropdim = min(xdim, ydim) // center_ds_fact - 1
     factor = 2 if xdim == 2463 else 4
     # make an image whose pixel value corresonds to the radius from the center.
     # and this will be used to create on-the-fly beamstop masks of varying radius
@@ -160,7 +177,7 @@ def run(args, seeds, jid, njobs):
         out.create_dataset("nominal_mask", data=mask)
         ds_shape = 512,512
         if args.centerCrop:
-            ds_shape = 832, 832
+            ds_shape = cropdim, cropdim
         comp_args = {"dtype": np.float32}
 
         if args.compress:
@@ -174,10 +191,12 @@ def run(args, seeds, jid, njobs):
                                   **comp_args)
 
         comp_args.pop("dtype")
-        if args.saveRaw:
-            raw_dset = out.create_dataset("raw_images",
-                                          shape=(Nshot,) + (ydim, xdim),
-                                          dtype=np.float32, **comp_args)
+        cbf_names = []
+
+        #if args.saveRaw:
+        #    raw_dset = out.create_dataset("raw_images",
+        #                                  shape=(Nshot,) + (1,ydim, xdim),
+        #                                  dtype=np.float32, **comp_args)
 
         param_names = ["reso", "one_over_reso",
                        "radius", "one_over_radius",
@@ -196,7 +215,13 @@ def run(args, seeds, jid, njobs):
         geom_dset.attrs["names"] = geom_names
 
         # list of rotation matrices (length is Nshot)
-        if args.axisRotOnly is not None:
+        if args.randAxis:
+            assert gvec is not None
+            angle= np.random.uniform(-180,180,Nshot)
+            rot_vecs = np.array([gvec / np.linalg.norm(gvec)]*Nshot)
+            rot_vecs *= angle[:,None]
+            rotMats = Rotation.from_rotvec(rot_vecs, degrees=True).as_matrix()
+        elif args.axisRotOnly is not None:
             angle = np.random.uniform(-180,180,Nshot)
             rot_vecs = np.zeros((Nshot, 3))
             rot_vecs[:,args.axisRotOnly] = angle
@@ -234,7 +259,15 @@ def run(args, seeds, jid, njobs):
             random_wave = lambda: np.random.uniform(en1, en2)
         for i_shot in range(Nshot):
             t = time.time()
-            params, img = HS.simulate(rot_mat=rotMats[i_shot],
+            cbf_name = None
+            if args.saveRaw:
+                cbf_dir = os.path.join(args.outdir, "cbfs%d" % jid)
+                if not os.path.exists(cbf_dir):
+                    os.makedirs(cbf_dir)
+                cbf_name = os.path.join(cbf_dir, "shot_1_%05d.cbf" % i_shot)
+                cbf_names.append(os.path.abspath(cbf_name))
+
+            params, spots, img = HS.simulate(rot_mat=rotMats[i_shot],
                                       multi_lattice_chance=args.multiChance,
                                       mos_min_max=args.mosMinMax,
                                       max_lat=args.maxLat,
@@ -246,7 +279,35 @@ def run(args, seeds, jid, njobs):
                                       randomize_wavelen=random_wave,
                                       randomize_scale=args.randScale,
                                       low_bg_chance=args.lowBgChance,
-                                      uniform_reso=args.uniReso)
+                                      uniform_reso=args.uniReso,
+                                      cbf_name=cbf_name)
+
+            if args.sanityTestOps:
+                pdb_name = params['pdb_name']
+                pdb_id = os.path.basename(pdb_name)
+                OPS = np.load(paths_and_const.SGOP_FILE, allow_pickle=True)[()][pdb_id]
+                print(pdb_id)
+                assert paths_and_const.FIX_RES
+
+                for i_op, U_o in enumerate(OPS):
+                    rot2 = np.dot(rotMats[i_shot], np.reshape(U_o, (3,3)))
+                    print("Doing op %d / %d" %(i_op+1, len(OPS)))
+                    print(U_o)
+                    params2, spots2, img2 = HS.simulate(rot_mat=rot2,
+                                                     multi_lattice_chance=args.multiChance,
+                                                     mos_min_max=args.mosMinMax,
+                                                     max_lat=args.maxLat,
+                                                     dev=dev, mos_dom_override=args.nmos,
+                                                     vary_background_scale=args.varyBgScale,
+                                                     pdb_name=pdb_name,
+                                                     randomize_dist=random_dist,
+                                                     randomize_center=args.randCent,
+                                                     randomize_wavelen=random_wave,
+                                                     randomize_scale=args.randScale,
+                                                     low_bg_chance=args.lowBgChance,
+                                                     uniform_reso=args.uniReso)
+                    assert np.allclose(spots, spots2)
+                exit()
 
             # at what pixel radius does this resolution corresond to
             radius = reso2radius(params["reso"], DET, BEAM)
@@ -302,43 +363,38 @@ def run(args, seeds, jid, njobs):
                 img = img_1d.reshape(img.shape)
                 img *= shot_mask
 
-            # process the raw images according to detector model
-            if xdim==2463:  # Pilatus 6M
-                quad_ds_fact = 2
-                center_ds_fact = 3
-            elif xdim == 3840:
-                quad_ds_fact = 3
-                center_ds_fact = 4
-            elif xdim==4096:  # Mar
-                quad_ds_fact = 4
-                center_ds_fact = 5
-            else:  # Eiger
-                quad_ds_fact = 4
-                center_ds_fact = 5
 
             if paths_and_const.LAUE_MODE:
                 ave_pool = counter_utils.mx_gamma(stride=center_ds_fact, use_mean=True)
                 ds_wavelen = counter_utils.process_image(params['wavelen_data'],
                                                          ave_pool, useSqrt=False)[0]
-            #from IPython import embed;embed()
+
+            if paths_and_const.PEAK_MODE:
+                img = spots > np.percentile(spots,99)
 
             if args.centerCrop:
-                max_pool = counter_utils.mx_gamma(stride=center_ds_fact)
+                max_pool = counter_utils.mx_gamma(stride=center_ds_fact, dim=cropdim)
                 ds_img = counter_utils.process_image(img, max_pool, useSqrt=True)[0]
+                dx = xdim *.5 / center_ds_fact - cropdim*.5
+                dy = ydim *.5 / center_ds_fact - cropdim*.5
+                cent_x_train = cent_x / center_ds_fact - dx
+                cent_y_train = cent_y / center_ds_fact - dy
             else:
                 max_pool = torch.nn.MaxPool2d(quad_ds_fact, quad_ds_fact)
                 q = 'A'
                 if args.randQuad:
                     q = np.random.choice(["A", "B", "C", "D"])
                 ds_img = to_tens(img, shot_mask, maxpool=max_pool, ds_fact=quad_ds_fact, quad=q)
+                # TODO update cent_x_train, cent_y_train
+                cent_x_train = (cent_x - xdim*.5)/quad_ds_fact #factor
+                cent_y_train = (cent_y - ydim*.5)/quad_ds_fact #factor
 
             # convert cent_x, cent_y to downsampled version
-            cent_x_train = (cent_x - xdim*.5)/factor
-            cent_y_train = (cent_y - ydim*.5)/factor
             Na, Nb, Nc = params["Ncells_abc"]
-            r1,r2,r3,r4,r5,r6,r7,r8,r9 = params["Umat"]
+            #r1,r2,r3,r4,r5,r6,r7,r8,r9 = params["Umat"]
+            r1,r2,r3,r4,r5,r6,r7,r8,r9 = rotMats[i_shot].ravel()
             param_arr = [params["reso"], 1/params["reso"],
-                 radius/factor, factor/radius,
+                 radius/quad_ds_fact, quad_ds_fact/radius, # TODO update depending on args.centerCrop?
                  params["multi_lattice"],
                  params["ang_sigma"],
                  params["num_lat"],
@@ -358,8 +414,8 @@ def run(args, seeds, jid, njobs):
                              pixsize,
                              xdim, ydim]
 
-            if args.saveRaw:
-                raw_dset[i_shot] = img
+            #if args.saveRaw:
+            #    raw_dset[i_shot] = img[None]
             if args.compress:
                 IMAX=np.sqrt(65535)
                 ds_img[ds_img > IMAX] = IMAX
@@ -368,9 +424,11 @@ def run(args, seeds, jid, njobs):
             dset[i_shot] =ds_img
             geom_dset[i_shot] = geom_array
             lab_dset[i_shot] = param_arr
+
             t = time.time()-t
             times.append(t)
             if jid == 0:
                 print("Done with shot %d / %d (took %.4f sec)" % (i_shot+1, Nshot, t), flush=True)
         if jid == 0:
             print("Done! Takes %.4f sec on average per image" % np.mean(times))
+        out.attrs["cbf_names"] = cbf_names

@@ -27,12 +27,13 @@ class Simulator:
                                       divergence=paths_and_const.DIVERGENCE_MRAD / 1e3 * 180 / np.pi)
         self.cuda=cuda
         self.verbose = verbose
+        self.shot_det = self.shot_beam = None
 
     def simulate(self, rot_mat=None, multi_lattice_chance=0, max_lat=2, mos_min_max=None,
                  pdb_name=None, plastic_stol=None, dev=0, mos_dom_override=None, vary_background_scale=False,
                  randomize_dist=None, randomize_wavelen=None, randomize_center=False,
                  randomize_scale=False, low_bg_chance=0, uniform_reso=False, roi=None,
-                 old_multi_spread=True):
+                 old_multi_spread=True, cbf_name=None):
         """
 
         :param rot_mat: specific orientation matrix for crystal
@@ -101,7 +102,7 @@ class Simulator:
                 shot_det = shift_distance(shot_det, dist_shift)
 
             if randomize_center:
-                cent_window_mm = 10  # millimeters
+                cent_window_mm = paths_and_const.CENTER_WINDOW_MM
                 cent_window_pix = int(cent_window_mm/shot_det[0].get_pixel_size()[0])
                 new_cent_x, new_cent_y = np.random.uniform(-cent_window_pix, cent_window_pix, 2)
                 shot_det = shift_center(shot_det, new_cent_x, new_cent_y)
@@ -207,7 +208,8 @@ class Simulator:
             if self.verbose:
                 print("Scaling background by %.3f" % bg_scale)
 
-        img = spots*Bfac_img*paths_and_const.VOL + bg*bg_scale
+        spots_scaled = Bfac_img*paths_and_const.VOL*spots
+        img = spots_scaled + bg*bg_scale
 
         make_sims.set_noise(S.D)
 
@@ -230,9 +232,16 @@ class Simulator:
                       "Umat": S.crystal.dxtbx_crystal.get_U(),
                       "wavelen_data": wavelen_data}
 
+        if cbf_name:
+            raw_pix = deepcopy(S.D.raw_pixels)
+            raw_pix.resize(flex.grid((ydim, xdim)))
+            S.D.raw_pixels = raw_pix
+            S.D.to_cbf(cbf_name)
         S.D.free_all()
 
-        return param_dict, noise_img
+        self.shot_det = shot_det
+        self.shot_beam = shot_beam
+        return param_dict, spots_scaled, noise_img
 
 
 def reso2radius(reso, DET, BEAM):

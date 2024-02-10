@@ -194,6 +194,44 @@ class Loss(torch.nn.Module):
         return loss
 
 
+def make_op_table(outfile=None):
+    assert HAS_CCTBX
+    pdb_path = os.path.join(os.environ["RESONET_SIMDATA"], "pdbs")
+    pdb_id_file = os.path.join(pdb_path, "pdb_ids.txt")
+    pdb_ids = [p.strip() for p in open(pdb_id_file, "r").readlines()]
+
+    pdb_ops = {}
+    for i_pdb, pdb_id in enumerate(pdb_ids):
+        print("Beginning PDB %s (%d / %d)" % (pdb_id, i_pdb+1, len(pdb_ids)))
+        #os.system("iotbx.fetch_pdb %s" % pdb_id)
+        pdb_file = os.path.join(pdb_path, pdb_id, pdb_id + ".pdb")
+        assert os.path.exists(pdb_file)
+        P = iotbx_pdb.input(pdb_file)
+        ucell = P.crystal_symmetry().unit_cell()
+        sg = P.crystal_symmetry().space_group()
+        sgi = sg.info()
+        print("PDB unit cell, space group:\n", ucell, sgi, "\n")
+
+        B = sqr(ucell.orthogonalization_matrix())
+        #to_p1_op = sgi.change_of_basis_op_to_primitive_setting()
+        #O = sqr(to_p1_op.c().r().as_double())
+        #Bstar = B.inverse().transpose()
+
+        ops = sg.build_derived_laue_group().all_ops()
+        ops = [o for o in ops if o.r().determinant() == 1]
+        Umat_ops = []
+        for o in ops:
+            R = sqr(o.r().as_double())
+            U_o = B.inverse()*R*B
+            Umat_ops.append(np.reshape(U_o, (3,3)))
+
+        pdb_ops[pdb_id] = Umat_ops
+
+    if outfile is not None:
+        np.save(outfile, pdb_ops)
+    return pdb_ops
+
+
 def make_op_table_using_nanoBragg(outfile, cuda=True):
     assert HAS_CCTBX
     pdb_path = os.path.join(os.environ["RESONET_SIMDATA"], "pdbs")
@@ -234,6 +272,8 @@ def make_op_table_using_nanoBragg(outfile, cuda=True):
         # to p1 matrix, these should be identical:
         Oi_test = np.linalg.inv(np.reshape(to_p1_op.c_inv().r().transpose().as_double(), (3, 3)))
         Oi = np.reshape(to_p1_op.c().r().transpose().as_double(), (3, 3))
+        Oi_sqr = sqr(Oi.ravel())
+        assert Oi_sqr.is_r3_rotation_matrix_rms()
         assert np.allclose(Oi, Oi_test)
 
         # real space B-matrix in P1

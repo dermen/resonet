@@ -36,7 +36,7 @@ def process_image(img, cond_meth, useSqrt=True, lt=0, dev="cpu"):
     return cond_img
 
 
-def mx_gamma(dev=None, stride=3, use_mean=False):
+def mx_gamma(dev=None, stride=3, use_mean=False, dim=832):
     """
 
     Parameters
@@ -55,8 +55,8 @@ def mx_gamma(dev=None, stride=3, use_mean=False):
     if dev is not None:
         mp = mp.to(dev)
     tran = torchvision.transforms.Compose([
-        mp,  # outputs image of size (842, 821)
-        torchvision.transforms.CenterCrop(832)
+        mp,
+        torchvision.transforms.CenterCrop(dim)
     ])
     return tran
 

@@ -44,6 +44,7 @@ def get_parser():
     parser.add_argument("--oriMode", action="store_true", help="refine orientations using 6 param rot mat")
     parser.add_argument("--debugMode", action="store_true", help="run with detect_anaomly e.g. find NaNs in model/grad")
     parser.add_argument("--noEvalOnly", action="store_true", help="use model.train() mode during training after epoch1")
+    parser.add_argument("--manualSeed", default=None, type=int, help="set to an integer in order to produce a reproducible training run")
     return parser
 
 
@@ -146,7 +147,7 @@ def validate(input_tens, model, epoch, criterion, COMM=None, error=0.3):
         else:
             if ori_loss:
                 # this is the ori_loss=True case
-                errors = loss_per[:, None] #orientation.loss(pred, labels, reduce=False)[:,None]
+                errors = loss_per[:, None] * 180/np.pi #orientation.loss(pred, labels, reduce=False)[:,None]
             else:
                 errors = (pred-labels).abs()
             is_accurate = errors < error
@@ -304,11 +305,15 @@ def do_training(h5input, h5label, h5imgs, outdir,
          title=None, COMM=None, ngpu_per_node=1, use_geom=False,
          error=0.3, weights=None, use_transform=False,
          cp=None, ori_mode=False, eval_mode_only=True, debug_mode=False,
-         use_sgnums=False):
+         use_sgnums=False, manual_seed=None):
 
     training_args = list(locals().items())
     # model and criterion choices
     assert loglevel in ["info", "debug", "critical"]
+    if manual_seed is not None:
+        os.environ["CUBLAS_WORKSPACE_CONFIG"]=":4096:8"
+        torch.manual_seed(manual_seed)
+        torch.use_deterministic_algorithms(True)
 
     assert arch in ARCHES
     assert loss in LOSSES
@@ -589,7 +594,7 @@ def main():
                 use_geom=args.useGeom, error=args.error, weights=args.weights,
                 use_transform=args.transform, eval_mode_only=not args.noEvalOnly,
                 ori_mode=args.oriMode, debug_mode=args.debugMode,
-                use_sgnums=args.useSGNums)
+                use_sgnums=args.useSGNums, manual_seed=args.manualSeed)
 
 
 if __name__ == "__main__":

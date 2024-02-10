@@ -64,6 +64,7 @@ def main():
     plt.subplots_adjust(bottom=0.15, left=0.1, right=0.99, wspace=0.33)
     w,h = plt.gcf().get_size_inches()
     plt.gcf().set_size_inches((1.3*w,h))
+    plt.suptitle(args.logfile)
     plt.show()
 
 
