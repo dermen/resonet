@@ -79,20 +79,20 @@ def debug(M,a):
         print("NAN in :", a)
 
 
-def gs_mapping(vecs):
+def gs_mapping(vecs, eps=1e-6):
     """
     :param vecs: outputs of the ori_mode resnet model (6 parameters per image)
     :return: 9 parameters per image (the orientation matrix)
     """
     a1 = vecs[:, 0:3]
     a2 = vecs[:, 3:6]
-    a1_norm = torch.linalg.norm(a1, axis=1).clamp(1e-6)
+    a1_norm = torch.linalg.norm(a1, axis=1).clamp(eps)
     b1 = a1 / a1_norm[:,None]
 
     b1_dot_a2 = torch.sum(b1 * a2, axis=1)
     u2 = a2 - b1_dot_a2[:,None] * b1
 
-    u2_norm = torch.linalg.norm(u2,axis=1).clamp(min=1e-6)
+    u2_norm = torch.linalg.norm(u2,axis=1).clamp(min=eps)
     b2 = u2 / u2_norm[:,None]
 
     b3 = batch_cross(b1, b2)

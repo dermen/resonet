@@ -45,6 +45,7 @@ def get_parser():
     parser.add_argument("--debugMode", action="store_true", help="run with detect_anaomly e.g. find NaNs in model/grad")
     parser.add_argument("--noEvalOnly", action="store_true", help="use model.train() mode during training after epoch1")
     parser.add_argument("--manualSeed", default=None, type=int, help="set to an integer in order to produce a reproducible training run")
+    parser.add_argument("--kernelSize", type=int, default=7, help="Size of the resnet conv1 kernel (default=7)")
     return parser
 
 
@@ -305,7 +306,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
          title=None, COMM=None, ngpu_per_node=1, use_geom=False,
          error=0.3, weights=None, use_transform=False,
          cp=None, ori_mode=False, eval_mode_only=True, debug_mode=False,
-         use_sgnums=False, manual_seed=None):
+         use_sgnums=False, manual_seed=None, kernel_size=7):
 
     training_args = list(locals().items())
     # model and criterion choices
@@ -375,9 +376,9 @@ def do_training(h5input, h5label, h5imgs, outdir,
         nety = ARCHES[arch]().to(all_imgs.dev)
     else:
         if cp is None:
-            nety = ARCHES[arch](nout=nout, dev=all_imgs.dev, dropout=dropout, ngeom=5, weights=weights)
+            nety = ARCHES[arch](nout=nout, dev=all_imgs.dev, dropout=dropout, ngeom=5, weights=weights, kernel_size=kernel_size)
         else:
-            nety = ARCHES[arch](nout=nout, dev="cpu", dropout=dropout, ngeom=5, weights=weights)
+            nety = ARCHES[arch](nout=nout, dev="cpu", dropout=dropout, ngeom=5, weights=weights, kernel_size=kernel_size)
             nety.load_state_dict(cp["model_state"])
             nety = nety.to(all_imgs.dev)
 
@@ -386,7 +387,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
     if COMM is not None:
         nety = torch.nn.SyncBatchNorm.convert_sync_batchnorm(nety)
         nety = nn.parallel.DistributedDataParallel(nety, device_ids=[gpuid], 
-            find_unused_parameters= arch in ["le", "res50", "res34"])
+            find_unused_parameters= arch in ["le", "res50", "res34", "res18"])
     if half_precision:
         print("Moving model to half precision")
         nety = nety.half()
@@ -594,7 +595,7 @@ def main():
                 use_geom=args.useGeom, error=args.error, weights=args.weights,
                 use_transform=args.transform, eval_mode_only=not args.noEvalOnly,
                 ori_mode=args.oriMode, debug_mode=args.debugMode,
-                use_sgnums=args.useSGNums, manual_seed=args.manualSeed)
+                use_sgnums=args.useSGNums, manual_seed=args.manualSeed, kernel_size=args.kernelSize)
 
 
 if __name__ == "__main__":

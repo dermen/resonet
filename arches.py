@@ -12,8 +12,9 @@ from resonet.utils import orientation
 class RESNetBase(nn.Module):
 
     def _set_blocks(self):
+        padding = int(round(self.kernel_size/2)) - 1
         self.resnet.conv1 = nn.Conv2d(self.nchan, 64,
-                                      kernel_size=7, stride=2, padding=3, bias=False,
+                                      kernel_size=self.kernel_size, stride=2, padding=padding, bias=False,
                                       device=self.dev)
         self.DROP = nn.Dropout(p=0.5)
         self.fc1 = nn.Linear(1000, 100, device=self.dev)
@@ -125,12 +126,22 @@ class RESNetBase(nn.Module):
     def nchan(self, val):
         self._nchan = val
 
+    @property
+    @abstractmethod
+    def kernel_size(self):
+        return self._kernel_size
+
+    @kernel_size.setter
+    @abstractmethod
+    def kernel_size(self, val):
+        self._kernel_size = val
+
 
 class RESNetAny(RESNetBase):
     # not used anywhere yet...
 
     def __init__(self, netnum, dev=None, device_id=0, nout=1, dropout=False, ngeom=5, nchan=1,
-                 weights=None):
+                 weights=None, kernel_size=7):
         """
 
         :param netnum: resnet number (18,34,50,101,152)
@@ -141,10 +152,12 @@ class RESNetAny(RESNetBase):
         :param ngeom: length of geometry meta-data vector
         :param nchan: number of channels in input image (e.g. RGB images have 3 channels)
         :param weights: whether to use the pretrained resnet models, and specify weights
+        :param kernel_size: the size of the conv1 kernel in the resnet
         """
         super().__init__()
         self.dropout = dropout
         self.nchan = nchan
+        self.kernel_size = kernel_size
         self.ngeom= ngeom
         if dev is None:
             self.dev = "cuda:%d" % device_id
@@ -163,7 +176,7 @@ class RESNetAny(RESNetBase):
 
 
 class LeNet(nn.Module):
-    def __init__(self, dev=None, nout=1, dropout=False, ngeom=5, nchan=1):
+    def __init__(self, dev=None, nout=1, dropout=False, ngeom=5, nchan=1, kernel_size=None):
         """
 
         :param dev: pytorch device
@@ -171,6 +184,7 @@ class LeNet(nn.Module):
         :param dropout: whether to use a dropout layer
         :param ngeom: length of meta-data vector
         :param nchan: number of input image channels
+        :param kernel_size: Unused
         """
         super().__init__()
         self.ngeom=ngeom

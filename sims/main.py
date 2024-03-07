@@ -57,6 +57,7 @@ def args(use_joblib=False):
     parser.add_argument("--centerCrop", action="store_true", help="Alternative to quad downsampling, downsample whole image by a factor and "
                                                                   "crop around the center")
     parser.add_argument("--sanityTestOps", action="store_true", help="If True, then ensure application of operators in the SGOPS file produce the same diffraction pattern")
+    parser.add_argument("--iceMaskChance", type=float, default=0, help="Number 0-1, probability that an ice ring mask will be added to the simulated image")
     if use_joblib:
         parser.add_argument("--njobs", default=None, type=int, help="number of jobs")
     args = parser.parse_args()
@@ -127,6 +128,16 @@ def run(args, seeds, jid, njobs, gvec=None):
         if args.mask is not None:
             mask = np.load(args.mask)
             assert len(mask.shape) == 2
+
+    # Load the ice d spacings for doing ice masking later
+    #unit_cell = uctbx.unit_cell((4.498, 4.498, 7.338, 90, 90, 120))
+    #space_group = sgtbx.space_group_info(number=194).group()
+    #indices = index_generator(unit_cell, space_group.type(), False, 1).to_array()
+    #dsd = unit_cell.d_star_sq(indices)
+    #ice_d = sorted(1 / np.sqrt(dsd.as_numpy_array()))
+    from resonet.utils.ice_mask import IceMasker
+    ice_masker = IceMasker(DET, BEAM)
+
     # TODO: check whether factor is meant to be replaced totally by quad_ds_fact, and adjust rest of code accordingly
     # process the raw images according to detector model
     if xdim == 2463:  # Pilatus 6M
@@ -267,7 +278,7 @@ def run(args, seeds, jid, njobs, gvec=None):
                 cbf_name = os.path.join(cbf_dir, "shot_1_%05d.cbf" % i_shot)
                 cbf_names.append(os.path.abspath(cbf_name))
 
-            params, spots, img = HS.simulate(rot_mat=rotMats[i_shot],
+            params, spots, img, shot_det, shot_beam = HS.simulate(rot_mat=rotMats[i_shot],
                                       multi_lattice_chance=args.multiChance,
                                       mos_min_max=args.mosMinMax,
                                       max_lat=args.maxLat,
@@ -281,6 +292,9 @@ def run(args, seeds, jid, njobs, gvec=None):
                                       low_bg_chance=args.lowBgChance,
                                       uniform_reso=args.uniReso,
                                       cbf_name=cbf_name)
+            is_ice_ring = None
+            if args.iceMaskChance > np.random.random():
+                is_ice_ring = ice_masker.mask(shot_det, shot_beam)[0]
 
             if args.sanityTestOps:
                 pdb_name = params['pdb_name']
@@ -293,7 +307,7 @@ def run(args, seeds, jid, njobs, gvec=None):
                     rot2 = np.dot(rotMats[i_shot], np.reshape(U_o, (3,3)))
                     print("Doing op %d / %d" %(i_op+1, len(OPS)))
                     print(U_o)
-                    params2, spots2, img2 = HS.simulate(rot_mat=rot2,
+                    params2, spots2, img2, _, _ = HS.simulate(rot_mat=rot2,
                                                      multi_lattice_chance=args.multiChance,
                                                      mos_min_max=args.mosMinMax,
                                                      max_lat=args.maxLat,
@@ -339,6 +353,10 @@ def run(args, seeds, jid, njobs, gvec=None):
                 if args.verbose:
                     print("beamstop rad=%.1f" % beamstop_rad)
                 shot_mask = np.logical_and(shot_mask, ~is_in_beamstop)
+
+            # optionally add ice mask
+            if is_ice_ring is not None:
+                shot_mask = np.logical_and(shot_mask, ~is_ice_ring)
 
             # add hot pixels
             npix = img.size

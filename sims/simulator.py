@@ -241,7 +241,7 @@ class Simulator:
 
         self.shot_det = shot_det
         self.shot_beam = shot_beam
-        return param_dict, spots_scaled, noise_img
+        return param_dict, spots_scaled, noise_img, shot_det, shot_beam
 
 
 def reso2radius(reso, DET, BEAM):
