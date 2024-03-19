@@ -27,9 +27,10 @@ class ImagePredictDxtbx(ImagePredict):
         """
         super().__init__(*args, **kwargs)
 
-    def load_image_from_file(self, image_file, filenum=0):
+    def load_image_from_file(self, image_file, filenum=0, use_ice_mask=False):
         """
         :param image_file:  path to an image file readable by DXTBX
+        :param use_ice_mask: bool, whether or not to add ice rings to the loaded image
         """
         loader = dxtbx.load(image_file)
         try:
@@ -63,4 +64,7 @@ class ImagePredictDxtbx(ImagePredict):
         self.detdist_mm = abs(det[0].get_distance())
         self.wavelen_Angstrom = beam.get_wavelength()
         self._set_geom_tensor()
+        if use_ice_mask:
+            dxtbx_geom = {"detector":det, "beam": beam}
+            self.set_ice_mask(dxtbx_geom=dxtbx_geom)
         self._set_pixel_tensor(raw_image)

@@ -4,6 +4,7 @@ from scipy.ndimage import binary_dilation
 import numpy as np
 
 from resonet.utils.eval_model import load_model, to_tens
+from resonet.utils.ice_mask import IceMasker
 from resonet.utils.counter_utils import mx_gamma, load_count_model, process_image
 
 """
@@ -62,6 +63,7 @@ class ImagePredict:
         use_modern_reso: bool, whether to use the d_to_dnew method to alter resolution
         B_to_d: str, path to the MLP model for estimating reso from B factor
         """
+        self.ice_masker = None   # instance of resonet.utiuls.ice_masker.IceMasker
         self.pixels = None  # this is the image tensor, a (512x512) representation of the diffraction shot
         self.counts_pixels = None  # downsampled tensor representation of the entire image
         self.geom = None  # the geometry tensor, (1x5) tensor with elements (detdist, wavelen, pixsize, xdim, ydim)
@@ -74,7 +76,8 @@ class ImagePredict:
         self._try_load_B_to_d(B_to_d)
 
         self._geom_props = ["detdist_mm", "pixsize_mm", "wavelen_Angstrom", "xdim", "ydim"]
-        self.mask = None
+        self.mask = None  # True if pixel is valid
+        self.ice_mask = None  # True if pixel is not ice
 
         self.maxpool_2x2 = torch.nn.MaxPool2d(2, 2)
         self.maxpool_4x4 = torch.nn.MaxPool2d(4, 4)
@@ -214,6 +217,23 @@ class ImagePredict:
         self.geom = torch.tensor([[self.detdist_mm, self.pixsize_mm, self.wavelen_Angstrom, self.xdim, self.ydim]])
         self.geom = self.geom.to(self._dev)
 
+    def set_ice_mask(self, dxtbx_geom=None, simple_geom=None):
+        if self.ice_masker is None:
+            self.ice_masker = IceMasker(dxtbx_geom, simple_geom)
+        if simple_geom is not None:
+            kwargs = {"distance": simple_geom["distance_mm"], "wavelength": simple_geom["wavelength_Ang"],
+                      "beam_x": simple_geom["beam_x"], "beam_y": simple_geom["beam_y"]}
+        else:
+            assert dxtbx_geom is not None
+            det = dxtbx_geom['detector']
+            beam = dxtbx_geom["beam"]
+            kwargs = {"distance": det[0].get_distance(), "wavelength": beam.get_wavelength()}
+            beam_x, beam_y = det[0].get_beam_centre_px(beam.get_unit_s0())
+            kwargs["beam_x"] = beam_x
+            kwargs["beam_y"] = beam_y
+
+        self.ice_mask = ~self.ice_masker.mask(**kwargs)[0]
+
     def _set_pixel_tensor(self, raw_img):
         """pass in a raw image (2D array) and convert it to an torch tensor for prediction"""
         # check for mask and set a default if none found
@@ -252,6 +272,9 @@ class ImagePredict:
             mask = raw_img >= 0
             mask = ~binary_dilation(~mask, iterations=1)
             self.mask = mask
+        if self.ice_mask is not None:
+            assert raw_img.shape == self.ice_mask.shape
+            self.mask = np.logical_and(self.mask, self.ice_mask)
 
     def detect_resolution(self, use_min=True):
         """
