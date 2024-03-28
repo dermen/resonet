@@ -45,7 +45,6 @@ class ImagePredictFabio(ImagePredict):
                 raise TypeError("beam center needs to be a tuple of len 2")
             beam_x,beam_y = beam_center
             slow_dim, fast_dim = raw_image.shape
-            from IPython import embed;embed()
             simple_geom = {"wavelength_Ang": wavelen, "distance_mm": detdist, "pixsize_mm": pixsize,
                            "beam_x": beam_x, "beam_y": beam_y, "fast_dim": fast_dim, "slow_dim": slow_dim}
             self.set_ice_mask(simple_geom=simple_geom)
