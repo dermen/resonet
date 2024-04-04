@@ -2,6 +2,7 @@
 import torch
 from scipy.ndimage import binary_dilation
 import numpy as np
+from collections.abc import Iterable
 
 from resonet.utils.eval_model import load_model, to_tens
 from resonet.utils.ice_mask import IceMasker
@@ -79,12 +80,16 @@ class ImagePredict:
         self.mask = None  # True if pixel is valid
         self.ice_mask = None  # True if pixel is not ice
 
+        self.maxpool_1x1 = torch.nn.MaxPool2d(1, 1)
         self.maxpool_2x2 = torch.nn.MaxPool2d(2, 2)
+        self.maxpool_3x3 = torch.nn.MaxPool2d(3, 3)
         self.maxpool_4x4 = torch.nn.MaxPool2d(4, 4)
         self.maxpool_pilatus_counts = mx_gamma(self._dev, stride=3)
         self.maxpool_eiger_counts = mx_gamma(self._dev, stride=5)
         self.allowed_quads = {-1: "rand1", -2: "rand2", 0: "A", 1: "B", 2: "C", 3: "D"}
         self.quads = [1]
+        self.ds_stride = None
+        self.cent = None
         self.gain = 1  # adu per photon
         self.raw_image = None
         self.cache_raw_image = False
@@ -193,6 +198,30 @@ class ImagePredict:
     def gain(self, val):
         assert val > 0
         self._gain = val
+    
+    @property
+    def cent(self):
+        return self._cent
+
+    @cent.setter
+    def cent(self, val):
+        if val is not None:
+            assert isinstance(val, Iterable)
+            assert len(val)==2
+            assert isinstance(val[0], float) or isinstance(val[0], int)
+            assert isinstance(val[1], float) or isinstance(val[1], int)
+
+        self._cent = val
+
+    @property
+    def ds_stride(self):
+        return self._ds_stride
+
+    @ds_stride.setter
+    def ds_stride(self, val):
+        if val not in [1,2,3,4,None]:
+            raise ValueError("Down sample stride should be 1-4 or None")
+        self._ds_stride = val
 
     @property
     def quads(self):
@@ -214,7 +243,10 @@ class ImagePredict:
             if getattr(self, prop) is None:
                 raise ValueError("Must set %s before initializing geom tensor" % prop)
 
-        self.geom = torch.tensor([[self.detdist_mm, self.pixsize_mm, self.wavelen_Angstrom, self.xdim, self.ydim]])
+        if self.ds_stride is not None:
+            self.geom = torch.tensor([[self.detdist_mm, self.pixsize_mm, self.wavelen_Angstrom, self.ds_stride]])
+        else:
+            self.geom = torch.tensor([[self.detdist_mm, self.pixsize_mm, self.wavelen_Angstrom, self.xdim, self.ydim]])
         self.geom = self.geom.to(self._dev)
 
     def set_ice_mask(self, dxtbx_geom=None, simple_geom=None):
@@ -239,20 +271,23 @@ class ImagePredict:
         # check for mask and set a default if none found
         self._set_default_mask(raw_img)
 
-        is_pil = self.xdim == 2463
-        if is_pil:
-            dwnsamp = 2
-            maxpool = self.maxpool_2x2
-        else:  # eiger or some other large format
-            maxpool = self.maxpool_4x4
-            dwnsamp = 4
+        dwnsamp = self.ds_stride
+        if dwnsamp is None:
+            is_pil = self.xdim == 2463
+            if is_pil:
+                dwnsamp = 2
+                maxpool = self.maxpool_2x2
+            else:  # eiger or some other large format
+                maxpool = self.maxpool_4x4
+                dwnsamp = 4
+        maxpool = getattr(self, "maxpool_%dx%d" % (dwnsamp, dwnsamp))
         tensors = []
         _quads = self.quads
         if _quads == ['rand1'] or _quads == ['rand2']:
             size = 1 if _quads== ['rand1'] else 2
             _quads = np.random.choice(["A", "B", "C", "D"], size=size, replace=False)
         for quad in _quads:
-            tens = to_tens(raw_img/self.gain, self.mask, maxpool=maxpool,
+            tens = to_tens(raw_img/self.gain, self.mask, cent=self.cent, maxpool=maxpool,
                            ds_fact=dwnsamp, quad=quad, dev=self._dev)
             tensors.append(tens)
         self.pixels = torch.concatenate(tensors)

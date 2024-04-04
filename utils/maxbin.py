@@ -1,7 +1,6 @@
 # coding: utf-8
 from PIL import Image
 import numpy as np
-import dxtbx
 import torch
 from torch.nn.functional import pad as PAD
 
@@ -151,27 +150,4 @@ def maximg_downsample(img, factor=2, maxpool=None, dev="cpu",
         padimg = np.concatenate((padimg , xzeros), axis=1)
         maximg = bin_ndarray(padimg, (int(ydim / factor), int(xdim / factor)), 'max')
     return maximg
-
-
-if __name__=="__main__":
-    # reference image from cbf2int, created using the following 2 commands:
-    # ~blstaff/generation_scripts/cbf2int  -maxpool 4 --sqrt --bits 8  -pgm  /data/lyubimov/software_tests/eiger2_data/10242021/B2/B2_1_00573.cbf -output test2.pgm
-    # convert -crop 1030x1028+0+0 test2.pgm  +repage test3.png
-    img0 = np.array(Image.open("/home/blstaff/generation_scripts/test3.png").getdata()).reshape(SHAPE_CROP)
-    
-    # reference quadrant image created using:
-    # convert -flip -flop -crop 515x514+515+514 test3.png  +repage  test3_A.png
-    img0_A = np.array(Image.open("/home/blstaff/generation_scripts/test3_A.png").getdata()).reshape(SHAPE_CROP[0]//2, SHAPE_CROP[1]//2)
-
-    # load raw image that made reference image
-    loader = dxtbx.load("/data/lyubimov/software_tests/eiger2_data/10242021/B2/B2_1_00573.cbf")
-    img = loader.get_raw_data().as_numpy_array()
-
-    # test full image conversion using max filter, compare with cbf2int
-    img2 = img2int(img)
-    assert np.allclose(img0, img2)
-    # test quadrant selection, compare with convert flip/flop + crop
-    img2_A = get_quadA(img2)
-    assert np.allclose(img0_A, img2_A)
-    print("ok!")
 
