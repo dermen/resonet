@@ -1,16 +1,20 @@
 # run with
 # pytest -q tests/test_models.py
 
+import pytest
 import numpy as np
 import torch
 import warnings
 from resonet import arches
 from resonet import params
+HAS_CUDA = torch.cuda.is_available()
 
 
 class TestModels:
 
     def test_resnet50_gpu(self):
+        if not HAS_CUDA:
+            pytest.skip("CUDA NOT AVAIL")
         self.main(50)
         self.main(50,num_out=2)
         self.main(50,num_out=2,num_geom=5)
@@ -23,9 +27,11 @@ class TestModels:
         self.main(50,num_out=2, dev=dev)
         self.main(50,num_out=2, dev=dev, num_geom=5)
         self.main(50,num_out=3, dev=dev, num_geom=5,nchan=3)
-        self.main(50,num_out=3,num_geom=5,nchan=3, weight = "IMAGENET1K_V1")
+        self.main(50,num_out=3, dev=dev, num_geom=5,nchan=3, weight = "IMAGENET1K_V1")
 
     def test_resnet18_gpu(self):
+        if not HAS_CUDA:
+            pytest.skip("CUDA NOT AVAIL")
         self.main(18)
         self.main(18,num_out=2)
         self.main(18,num_out=2,num_geom=5)
@@ -39,7 +45,7 @@ class TestModels:
         self.main(18,num_out=2, dev=dev)
         self.main(18,num_out=2, dev=dev, num_geom=5)
         self.main(18,num_out=3, dev=dev, num_geom=5,nchan=3)
-        self.main(18,num_out=3,num_geom=5,nchan=3, weight = "IMAGENET1K_V1")
+        self.main(18,num_out=3, dev=dev, num_geom=5,nchan=3, weight = "IMAGENET1K_V1")
 
 
     def test_resnet_wrapper(self):
@@ -47,7 +53,7 @@ class TestModels:
         ngeom=6
         nchan=2
         bs=4
-        dev="cuda:0"
+        dev="cpu"
         model = params.res50(nout=nout, ngeom=ngeom, nchan=nchan, dev=dev)
         model2 = arches.RESNetAny(netnum=50,nout=nout, nchan=nchan, ngeom=ngeom, dev=dev)
         print(model)
