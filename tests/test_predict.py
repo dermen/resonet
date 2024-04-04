@@ -9,13 +9,13 @@ def _test_predict_fabio(i):
     np.random.seed(0)
     img = np.random.random(shapes[i]).astype(np.float32)
     quads = [-2], [-1], [0,1], [0,1,2,3]
-    ice_mask = i%2==0
+    ice_mask = False
     main_fabio(img, use_modern_reso=use_modern_reso,ds_stride=strides[i] , quads=quads[i], use_ice_mask=ice_mask)
 
 
 def main_fabio(img, use_modern_reso=True, B_to_d=None, dev="cpu", mask=None, 
         cent=None, ds_stride=None, quads=[0], distance=100, pixsize=0.1, wavelen=1, gain=1,
-        use_ice_mask=True):
+        use_ice_mask=False):
     reso_model = "_pytest_resolution.nn"
     if not os.path.exists(reso_model):
         os.system("wget https://smb.slac.stanford.edu/~resonet/resolution.nn -O %s" % reso_model)

@@ -1,8 +1,12 @@
 
 import numpy as np
 from scipy.ndimage import binary_erosion
-from dials.algorithms.integration import filtering
-from dxtbx.model import DetectorFactory, BeamFactory, Detector, Panel, Beam
+try:
+    from dials.algorithms.integration import filtering
+    from dxtbx.model import DetectorFactory, BeamFactory, Detector, Panel, Beam
+    has_dials=True
+except ImportError:
+    has_dials = False
 
 from resonet.utils import qmags
 
