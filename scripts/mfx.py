@@ -9,7 +9,7 @@
 #wget https://smb.slac.stanford.edu/~resonet/reso_retrained.nn  #archstring=res50
 reso_model = "resolution.nn" # use for shorter wavelengths (~1 Ang), distances 200-300 mm
 reso_model = "reso_retrained.nn" # use for longer wavelengths (~1.3 Ang), distances 60-90 mm
-multi_model = "overlapping.nn"
+multi_model = None#"overlapping.nn"
 
 # See https://www.rayonix.com/product/mx340-xfel/
 rayonix_unbinned_size = 7680 # number of unbinned pixels across
@@ -38,8 +38,6 @@ def main():
     args = parser.parse_args()
     detz_offset = args.detzOffset
     gain = args.aduPerPhoton
-    run = args.run
-    exp = args.expt
     cent_mm = args.centerMM
     nominal_detz = args.nominalDetz
     ndev_per_node = args.ndevPerNode
@@ -49,8 +47,8 @@ def main():
     import os
     if not os.path.exists(reso_model):
         raise OSError("Please download resolution model using: wget https://smb.slac.stanford.edu/~resonet/reso_retrained.nn")
-    if not os.path.exists(multi_model):
-        raise OSError("Please download overlapping lattice model using: wget https://smb.slac.stanford.edu/~resonet/overlapping.nn")
+    #if not os.path.exists(multi_model):
+    #    raise OSError("Please download overlapping lattice model using: wget https://smb.slac.stanford.edu/~resonet/overlapping.nn")
     import time
     import numpy as np
     import torch
@@ -66,7 +64,7 @@ def main():
 
     from resonet.utils.predict_fabio import ImagePredictFabio
 
-    ds = psana.DataSource("exp=%s:run=%d:idx" % (exp, run))
+    ds = psana.DataSource("exp=%s:run=%d:idx" % (args.expt, args.run))
     run = next(ds.runs())
     times = run.times()
     nevent = len(times)
@@ -106,16 +104,19 @@ def main():
     # when processing starts
     tstart = time.time()
     count = 0
-    tcalib , tload , tres = [],[],[]
+    teid, twave, tdetz,tevent, tcalib , tload , tres = [],[],[],[],[],[],[]
     EBeam = psana.Detector("EBeam")
     en_convert = 1e10 * constants.c * constants.h / constants.electron_volt
-    for i_ev, t in enumerate(times):
-        ev = run.event(t)
+    for i_ev, event_t in enumerate(times):
+        t = time.time()
+        ev = run.event(event_t)
+        tevent.append(time.time()-t)
         if ev is None:
             continue
         if i_ev % COMM.size != COMM.rank:
             continue
 
+        t = time.time()
         if args.nominalWavelen is None:
             try:
                 ev_ebeam = EBeam.get(ev)
@@ -127,6 +128,7 @@ def main():
                 continue
         else:
             wavelen = args.nominalWavelen
+        twave.append( time.time()-t)
             
         t = time.time()
         img = RAY.calib(ev)
@@ -143,10 +145,12 @@ def main():
         P.cent = [x/pixsize for x in cent_mm]
         P.ds_stride = binning_map[binning]
 
+        t = time.time()
         if args.nominalDetz is None:
             detz = detz_encoder(ev) + detz_offset
         else:
             detz = args.nominalDetz
+        tdetz.append( time.time()-t)
 
         t = time.time()
         if not img.dtype==np.float32:
@@ -164,9 +168,11 @@ def main():
         #p = P.detect_multilattice_scattering()
         #tmult = time.time()-t
         count += 1
+        t = time.time()
         eid = ev.get(psana.EventId)
         sec, nsec = eid.time()
         fid=eid.fiducials()
+        teid.append( time.time()-t)
         print(f"Resolution is {d:.2f} Ang. for image {i_ev+1}/{nevent} (sec={sec},nsec={nsec},fiducial={fid}).")
         if args.maxImg is not None and i_ev> args.maxImg:
             break
@@ -176,13 +182,22 @@ def main():
     tcalib = COMM.reduce(tcalib)
     tload = COMM.reduce(tload)
     tres = COMM.reduce(tres)
+    twave = COMM.reduce(twave)
+    tdetz = COMM.reduce(tdetz)
+    teid = COMM.reduce(teid)
+    tevent = COMM.reduce(tevent)
+
 
     if COMM.rank==0:
         print(f"Processed {count} images in {ttotal:.2f} seconds ({count/ttotal:.2f} Hz)")
         print("Per-rank time to (medians)... ")
+        print(f"... get Event: {np.median(tevent)*1000:.2f} millisec")
+        print(f"... get Wavelength: {np.median(twave)*1000:.2f} millisec")
         print(f"... get Rayonix calibrated image from XTC: {np.median(tcalib)*1000:.2f} millisec")
+        print(f"... get DetZ: {np.median(tdetz)*1000:.2f} millisec")
         print(f"... load Rayonix image to torch tensor: {np.median(tload)*1000:.2f} millisec")
         print(f"... estimate resolution: {np.median(tres)*1000:.2f} millisec")
+        print(f"... get EventId timestamp: {np.median(teid)*1000:.2f} millisec")
 
 
 if __name__=="__main__":
