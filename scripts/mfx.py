@@ -189,15 +189,22 @@ def main():
 
 
     if COMM.rank==0:
+        def print_stat(tag, vals):
+            a = 1000*np.mean(vals)
+            b = 1000*np.median(vals)
+            c = 1000*np.std(vals)
+            d = 1000*np.max(vals)
+            print(f"{tag}: {a:.2f}, {b:.2f}, {c:.2f}, {d:.2f} milliseconds")
+
         print(f"Processed {count} images in {ttotal:.2f} seconds ({count/ttotal:.2f} Hz)")
-        print("Per-rank time to (medians)... ")
-        print(f"... get Event: {np.median(tevent)*1000:.2f} millisec")
-        print(f"... get Wavelength: {np.median(twave)*1000:.2f} millisec")
-        print(f"... get Rayonix calibrated image from XTC: {np.median(tcalib)*1000:.2f} millisec")
-        print(f"... get DetZ: {np.median(tdetz)*1000:.2f} millisec")
-        print(f"... load Rayonix image to torch tensor: {np.median(tload)*1000:.2f} millisec")
-        print(f"... estimate resolution: {np.median(tres)*1000:.2f} millisec")
-        print(f"... get EventId timestamp: {np.median(teid)*1000:.2f} millisec")
+        print("Per-rank time to (mean, median, std, max)... ")
+        print_stat("... get Event", tevent)
+        print_stat("... get Wavelength", twave)
+        print_stat("... get Rayonix calibrated image from XTC", tcalib)
+        print_stat("... get DetZ",tdetz)
+        print_stat("... load Rayonix image to torch tensor", tload)
+        print_stat("... estimate resolution", tres)
+        print_stat("... get EventId timestamp", teid)
 
 
 if __name__=="__main__":
