@@ -58,6 +58,7 @@ def args(use_joblib=False):
                                                                   "crop around the center")
     parser.add_argument("--sanityTestOps", action="store_true", help="If True, then ensure application of operators in the SGOPS file produce the same diffraction pattern")
     parser.add_argument("--iceMaskChance", type=float, default=0, help="Number 0-1, probability that an ice ring mask will be added to the simulated image")
+    parser.add_argument("--bgOnly", action="store_true", help="Only simulate background scattering")
     if use_joblib:
         parser.add_argument("--njobs", default=None, type=int, help="number of jobs")
     args = parser.parse_args()
@@ -136,7 +137,8 @@ def run(args, seeds, jid, njobs, gvec=None):
     #dsd = unit_cell.d_star_sq(indices)
     #ice_d = sorted(1 / np.sqrt(dsd.as_numpy_array()))
     from resonet.utils.ice_mask import IceMasker
-    ice_masker = IceMasker(DET, BEAM)
+    geom_dict = {"detector":DET, "beam":BEAM}
+    ice_masker = IceMasker(dxtbx_geom_dict=geom_dict)
 
     # TODO: check whether factor is meant to be replaced totally by quad_ds_fact, and adjust rest of code accordingly
     # process the raw images according to detector model
@@ -162,6 +164,7 @@ def run(args, seeds, jid, njobs, gvec=None):
     HS = Simulator(DET, BEAM, cuda=not args.cpuMode,
                    verbose=args.verbose and jid==0)
 
+    HS.bg_only = args.bgOnly
     # sample-to-detector distance and pixel size
     #detdist = abs(DET[0].get_distance())
     pixsize = DET[0].get_pixel_size()[0]
@@ -294,7 +297,11 @@ def run(args, seeds, jid, njobs, gvec=None):
                                       cbf_name=cbf_name)
             is_ice_ring = None
             if args.iceMaskChance > np.random.random():
-                is_ice_ring = ice_masker.mask(shot_det, shot_beam)[0]
+                distance = shot_det[0].get_distance()
+                wavelen = shot_beam.get_wavelength()
+                beam_x, beam_y = shot_det[0].get_beam_centre_px(shot_beam.get_unit_s0())
+                is_ice_ring = ice_masker.mask(distance=distance, wavelength=wavelen,
+                                              beam_x=beam_x, beam_y=beam_y)[0]
 
             if args.sanityTestOps:
                 pdb_name = params['pdb_name']
@@ -381,14 +388,13 @@ def run(args, seeds, jid, njobs, gvec=None):
                 img = img_1d.reshape(img.shape)
                 img *= shot_mask
 
-
             if paths_and_const.LAUE_MODE:
                 ave_pool = counter_utils.mx_gamma(stride=center_ds_fact, use_mean=True)
                 ds_wavelen = counter_utils.process_image(params['wavelen_data'],
                                                          ave_pool, useSqrt=False)[0]
 
             if paths_and_const.PEAK_MODE:
-                img = spots > np.percentile(spots,99)
+                img = spots > np.percentile(spots,99.99)
 
             if args.centerCrop:
                 max_pool = counter_utils.mx_gamma(stride=center_ds_fact, dim=cropdim)

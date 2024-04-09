@@ -28,10 +28,12 @@ DIVERGENCE_MRAD = 0
 DIVERGENCE_NSTEPS = 0
 LAMBDA_FILE = os.path.join(dirname, "e080_2.lam")
 LAUE_MODE = False
+PEAK_MODE = False
 BEAM_SIZE_MM = 0.03
 FLUX = 4e11  # photons per pulse
 XTALSIZE_MM = 0.025
 DOMAINSIZE_MM = 5e-5
+FLAT_BACKGROUND = False
 VOL = (XTALSIZE_MM / DOMAINSIZE_MM)**3  # scales the diffraction
 FIX_RES = 1.5 #None # 0.5/.29989  # optionally fix the resolution for all simulations ...
 

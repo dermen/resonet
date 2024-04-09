@@ -17,7 +17,7 @@ def d_to_dnew(d):
 
     Parameters
     ----------
-    d: resolution estimate from CRAIT assuming Holton 2009 model B = 4d^2 + 12
+    d: resolution estimate assuming Holton 2009 model B = 4d^2 + 12
 
     Returns
     -------

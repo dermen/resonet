@@ -28,6 +28,7 @@ class Simulator:
         self.cuda=cuda
         self.verbose = verbose
         self.shot_det = self.shot_beam = None
+        self.bg_only = False
 
     def simulate(self, rot_mat=None, multi_lattice_chance=0, max_lat=2, mos_min_max=None,
                  pdb_name=None, plastic_stol=None, dev=0, mos_dom_override=None, vary_background_scale=False,
@@ -196,6 +197,8 @@ class Simulator:
             reso, Bfac_img = make_sims.get_Bfac_img(STOL)
 
         bg = air_and_water + plastic
+        if paths_and_const.FLAT_BACKGROUND:
+            bg = np.ones_like(bg)* np.mean(bg)
         bg_scale = 1
         if vary_background_scale:
             # originally, bg scale was drawn like this
@@ -209,7 +212,10 @@ class Simulator:
                 print("Scaling background by %.3f" % bg_scale)
 
         spots_scaled = Bfac_img*paths_and_const.VOL*spots
-        img = spots_scaled + bg*bg_scale
+        if self.bg_only:
+            img = bg*bg_scale
+        else:
+            img = spots_scaled + bg*bg_scale
 
         make_sims.set_noise(S.D)
 
