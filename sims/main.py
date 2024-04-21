@@ -59,6 +59,9 @@ def args(use_joblib=False):
     parser.add_argument("--sanityTestOps", action="store_true", help="If True, then ensure application of operators in the SGOPS file produce the same diffraction pattern")
     parser.add_argument("--iceMaskChance", type=float, default=0, help="Number 0-1, probability that an ice ring mask will be added to the simulated image")
     parser.add_argument("--bgOnly", action="store_true", help="Only simulate background scattering")
+    parser.add_argument("--randTilt", action="store_true", help="Randomize detector tilt angles")
+    parser.add_argument("--fix3fold", action="store_true", help="Ensure F_latt is 3-fold symmetric")
+    parser.add_argument("--xtalShape", default="gauss", type = str, help="shape factor of the relp, can be gauss, square, or gauss_star (default=gauss)")
     if use_joblib:
         parser.add_argument("--njobs", default=None, type=int, help="number of jobs")
     args = parser.parse_args()
@@ -86,6 +89,8 @@ def run(args, seeds, jid, njobs, gvec=None):
     from simtbx.diffBragg import utils
     from scipy.spatial.transform import Rotation
     from scipy.ndimage import binary_dilation
+    #from cctbx.miller import index_generator
+    #from cctbx import uctbx, sgtbx
 
     from resonet.sims.simulator import Simulator, reso2radius
 
@@ -163,8 +168,10 @@ def run(args, seeds, jid, njobs, gvec=None):
     # instantiate the simulator class
     HS = Simulator(DET, BEAM, cuda=not args.cpuMode,
                    verbose=args.verbose and jid==0)
-
+    HS.fix_threefolds = args.fix3fold
+    HS.randomize_tilt = args.randTilt
     HS.bg_only = args.bgOnly
+    HS.xtal_shape = args.xtalShape
     # sample-to-detector distance and pixel size
     #detdist = abs(DET[0].get_distance())
     pixsize = DET[0].get_pixel_size()[0]
@@ -183,9 +190,11 @@ def run(args, seeds, jid, njobs, gvec=None):
     outname = os.path.join(args.outdir, "%s%d.h5" %(prefix,jid))
     if jid==0:
         cmd = os.path.join(args.outdir, "commandline.txt")
+        config = open(paths_and_const.__file__, 'r').read()
         with open(cmd, "w") as o:
             o.write("working dir: %s\n" % os.getcwd())
             o.write("Python command: " + " ".join(sys.argv) + "\n")
+            o.write("\nConfiguration (paths_and_const.py):\n%s" % config)
 
     with h5py.File(outname, "w") as out:
         out.create_dataset("nominal_mask", data=mask)
@@ -220,7 +229,7 @@ def run(args, seeds, jid, njobs, gvec=None):
                        "beam_center_fast", "beam_center_slow",
                        "cent_fast_train", "cent_slow_train",
                        "Na", "Nb", "Nc", "pdb", "mos_spread","xtal_scale"] \
-                      + ["r%d" % x for x in range(1, 10)]
+                      + ["r%d" % x for x in range(1, 10)] + ['pitch_deg', 'yaw_deg']
         geom_names = ["detdist", "wavelen", "pixsize", "xdim", "ydim"]
         lab_dset = out.create_dataset("labels", dtype=np.float32, shape=(Nshot, len(param_names)) , **comp_args)
         geom_dset = out.create_dataset("geom", dtype=np.float32, shape=(Nshot, len(geom_names)), **comp_args)
@@ -327,7 +336,17 @@ def run(args, seeds, jid, njobs, gvec=None):
                                                      randomize_scale=args.randScale,
                                                      low_bg_chance=args.lowBgChance,
                                                      uniform_reso=args.uniReso)
-                    assert np.allclose(spots, spots2)
+                    if not np.allclose(spots, spots2):
+                        assert args.centerCrop  # we only care about this allclose test if center crop is true (orientation mode)
+                        max_pool = counter_utils.mx_gamma(stride=center_ds_fact, dim=cropdim)
+                        ds_spots = []
+                        for sp_img in [spots, spots2]:
+                            ds_sp = counter_utils.process_image(sp_img, max_pool, useSqrt=True)[0]
+                            IMAX = np.sqrt(65535)
+                            ds_sp[ds_sp > IMAX] = IMAX
+                            ds_sp = ds_sp.numpy().astype(np.uint16)
+                            ds_spots.append(ds_sp)
+                        assert np.allclose(ds_spots[0], ds_spots[1])
                 exit()
 
             # at what pixel radius does this resolution corresond to
@@ -432,7 +451,9 @@ def run(args, seeds, jid, njobs, gvec=None):
                  PDB_MAP[params["pdb_name"]],
                  params["mos_spread"],
                  params["crystal_scale"],
-                 r1,r2,r3,r4,r5,r6,r7,r8,r9]
+                 r1,r2,r3,r4,r5,r6,r7,r8,r9,
+                 params['pitch_deg'], params['yaw_deg']]
+
             geom_array = [params["detector_distance"],
                              params["wavelength"],
                              pixsize,

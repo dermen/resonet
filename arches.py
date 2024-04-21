@@ -17,10 +17,10 @@ class RESNetBase(nn.Module):
                                       kernel_size=self.kernel_size, stride=2, padding=padding, bias=False,
                                       device=self.dev)
         self.DROP = nn.Dropout(p=0.5)
-        self.fc1 = nn.Linear(1000, 100, device=self.dev)
-        self.fc2 = nn.Linear(100, self.nout, device=self.dev)
+        self.fc1 = nn.Linear(1000, self.num_fc, device=self.dev)
+        self.fc2 = nn.Linear(self.num_fc, self.nout, device=self.dev)
         # optional linear model including geometry
-        self.fc2_geom = nn.Linear(100+self.ngeom, self.nout, device=self.dev)
+        self.fc2_geom = nn.Linear(self.num_fc+self.ngeom, self.nout, device=self.dev)
         self.Sigmoid = nn.Sigmoid()
 
     def forward(self, x, y=None):
@@ -53,6 +53,20 @@ class RESNetBase(nn.Module):
         if self.ori_mode:
             x = orientation.gs_mapping(x)
         return x
+
+    @property
+    @abstractmethod
+    def num_fc(self):
+        """number of output channels"""
+        return self._num_fc
+
+    @num_fc.setter
+    @abstractmethod
+    def num_fc(self, val):
+        if val >= 1000 or val < 10:
+            raise ValueError("num_fc should be < 1000 and >= 10")
+        self._num_fc = val
+
 
     @property
     @abstractmethod
@@ -141,7 +155,7 @@ class RESNetAny(RESNetBase):
     # not used anywhere yet...
 
     def __init__(self, netnum, dev=None, device_id=0, nout=1, dropout=False, ngeom=5, nchan=1,
-                 weights=None, kernel_size=7):
+                 weights=None, kernel_size=7, num_fc=100):
         """
 
         :param netnum: resnet number (18,34,50,101,152)
@@ -153,6 +167,8 @@ class RESNetAny(RESNetBase):
         :param nchan: number of channels in input image (e.g. RGB images have 3 channels)
         :param weights: whether to use the pretrained resnet models, and specify weights
         :param kernel_size: the size of the conv1 kernel in the resnet
+        :param num_fc: the number of output channels of fc1 whose inputs are the 1000 resnet outputs
+            this number should be < 1000 and >= 10
         """
         super().__init__()
         self.dropout = dropout
@@ -164,6 +180,7 @@ class RESNetAny(RESNetBase):
         else:
             self.dev = dev
         self.nout = nout
+        self.num_fc = num_fc
         model = getattr(models, "resnet%d" % netnum)
         try:
             self.resnet = model(weights=weights).to(self.dev)

@@ -29,6 +29,9 @@ class Simulator:
         self.verbose = verbose
         self.shot_det = self.shot_beam = None
         self.bg_only = False
+        self.randomize_tilt = False
+        self.fix_threefolds = False
+        self.xtal_shape = "gauss"
 
     def simulate(self, rot_mat=None, multi_lattice_chance=0, max_lat=2, mos_min_max=None,
                  pdb_name=None, plastic_stol=None, dev=0, mos_dom_override=None, vary_background_scale=False,
@@ -61,7 +64,8 @@ class Simulator:
         crystal_scale = 1
         if randomize_scale:
             crystal_scale = np.random.choice([1,1,1,1,2,2,3])
-        C = make_crystal.load_crystal(pdb_name, rot_mat, crystal_scale, cut_1p2=paths_and_const.CUT_1P2)
+        C = make_crystal.load_crystal(pdb_name, rot_mat, crystal_scale, cut_1p2=paths_and_const.CUT_1P2,
+                                      xtal_shape=self.xtal_shape)
         mos_min = mos_max = None  # will default to values in paths_and_const.py
         if mos_min_max is not None:
             mos_min, mos_max = mos_min_max
@@ -84,7 +88,9 @@ class Simulator:
         S = sim_data.SimData()
         S.crystal = C
 
-        if randomize_dist is not None or randomize_center or randomize_wavelen is not None:
+        pitch_angle = yaw_angle = 0
+
+        if randomize_dist is not None or randomize_center or randomize_wavelen is not None or self.randomize_tilt:
             shot_beam = deepcopy(self.BEAM)
             if randomize_wavelen is not None:
                 energy_ev = randomize_wavelen()
@@ -107,6 +113,16 @@ class Simulator:
                 cent_window_pix = int(cent_window_mm/shot_det[0].get_pixel_size()[0])
                 new_cent_x, new_cent_y = np.random.uniform(-cent_window_pix, cent_window_pix, 2)
                 shot_det = shift_center(shot_det, new_cent_x, new_cent_y)
+
+            if self.randomize_tilt:
+                pitch = paths_and_const.RANDOM_TILT_PITCH_DEG*np.pi/280
+                yaw = paths_and_const.RANDOM_TILT_YAW_DEG *np.pi/180
+                pitch_angle = np.random.uniform(-pitch, pitch)
+                yaw_angle = np.random.uniform(-yaw, yaw)
+                fast_axis = shot_det[0].get_fast_axis()
+                slow_axis = shot_det[0].get_slow_axis()
+                shot_det.rotate_around_origin(fast_axis,pitch_angle)
+                shot_det.rotate_around_origin(slow_axis,yaw_angle)
 
             air_and_water = make_sims.get_background(shot_det, shot_beam, roi=roi)
             # stol of every pixel:
@@ -135,6 +151,11 @@ class Simulator:
             print("Simulating spots!", flush=True)
         S.D.device_Id = dev
         S.D.store_ave_wavelength_image = paths_and_const.LAUE_MODE
+        if self.fix_threefolds:
+            num_blocks = len(S.D.get_mosaic_blocks())
+            p1_cryst = deepcopy(C.dxtbx_crystal)
+            ref_cryst = p1_cryst.change_basis(C.space_group_info.change_of_basis_op_to_primitive_setting().inverse())
+            S.D.set_mosaic_blocks_sym(ref_cryst, reference_symbol=C.symbol, orig_mos_domains=num_blocks)
         S.D.add_diffBragg_spots_full()
         #if self.cuda:
         #    S.D.device_Id = dev
@@ -236,6 +257,8 @@ class Simulator:
                       "mos_spread": mos_spread,
                       "crystal_scale": crystal_scale,
                       "Umat": S.crystal.dxtbx_crystal.get_U(),
+                      "pitch_deg": pitch_angle*180/np.pi,
+                      "yaw_deg": yaw_angle*180/np.pi,
                       "wavelen_data": wavelen_data}
 
         if cbf_name:

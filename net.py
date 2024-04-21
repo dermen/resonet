@@ -46,6 +46,7 @@ def get_parser():
     parser.add_argument("--noEvalOnly", action="store_true", help="use model.train() mode during training after epoch1")
     parser.add_argument("--manualSeed", default=None, type=int, help="set to an integer in order to produce a reproducible training run")
     parser.add_argument("--kernelSize", type=int, default=7, help="Size of the resnet conv1 kernel (default=7)")
+    parser.add_argument("--numFC", type=int, default=100, help="num FC 1")
     return parser
 
 
@@ -306,7 +307,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
          title=None, COMM=None, ngpu_per_node=1, use_geom=False,
          error=0.3, weights=None, use_transform=False,
          cp=None, ori_mode=False, eval_mode_only=True, debug_mode=False,
-         use_sgnums=False, manual_seed=None, kernel_size=7):
+         use_sgnums=False, manual_seed=None, kernel_size=7, num_fc=100):
 
     training_args = list(locals().items())
     # model and criterion choices
@@ -376,9 +377,11 @@ def do_training(h5input, h5label, h5imgs, outdir,
         nety = ARCHES[arch]().to(all_imgs.dev)
     else:
         if cp is None:
-            nety = ARCHES[arch](nout=nout, dev=all_imgs.dev, dropout=dropout, ngeom=5, weights=weights, kernel_size=kernel_size)
+            nety = ARCHES[arch](nout=nout, dev=all_imgs.dev, dropout=dropout, ngeom=5, weights=weights,
+                                kernel_size=kernel_size, num_fc=num_fc)
         else:
-            nety = ARCHES[arch](nout=nout, dev="cpu", dropout=dropout, ngeom=5, weights=weights, kernel_size=kernel_size)
+            nety = ARCHES[arch](nout=nout, dev="cpu", dropout=dropout, ngeom=5, weights=weights,
+                                kernel_size=kernel_size, num_fc=num_fc)
             nety.load_state_dict(cp["model_state"])
             nety = nety.to(all_imgs.dev)
 
@@ -595,7 +598,7 @@ def main():
                 use_geom=args.useGeom, error=args.error, weights=args.weights,
                 use_transform=args.transform, eval_mode_only=not args.noEvalOnly,
                 ori_mode=args.oriMode, debug_mode=args.debugMode,
-                use_sgnums=args.useSGNums, manual_seed=args.manualSeed, kernel_size=args.kernelSize)
+                use_sgnums=args.useSGNums, manual_seed=args.manualSeed, kernel_size=args.kernelSize, num_fc=args.numFC)
 
 
 if __name__ == "__main__":
