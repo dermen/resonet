@@ -17,7 +17,7 @@ def d_to_dnew(d):
 
     Parameters
     ----------
-    d: resolution estimate assuming Holton 2009 model B = 4d^2 + 12
+    d: resolution estimate from CRAIT assuming Holton 2009 model B = 4d^2 + 12
 
     Returns
     -------
@@ -274,6 +274,7 @@ class ImagePredict:
         dwnsamp = self.ds_stride
         if dwnsamp is None:
             is_pil = self.xdim == 2463
+            print('\n is pil', is_pil)
             if is_pil:
                 dwnsamp = 2
                 maxpool = self.maxpool_2x2
