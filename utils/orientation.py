@@ -222,7 +222,8 @@ def make_op_table(outfile=None):
         Umat_ops = []
         for o in ops:
             R = sqr(o.r().as_double())
-            U_o = B.inverse()*R*B
+            U_o = B*R*B.inverse()
+            #U_o = B.inverse()*R*B
             Umat_ops.append(np.reshape(U_o, (3,3)))
 
         pdb_ops[pdb_id] = Umat_ops

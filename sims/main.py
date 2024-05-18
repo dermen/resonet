@@ -59,6 +59,10 @@ def args(use_joblib=False):
     parser.add_argument("--sanityTestOps", action="store_true", help="If True, then ensure application of operators in the SGOPS file produce the same diffraction pattern")
     parser.add_argument("--iceMaskChance", type=float, default=0, help="Number 0-1, probability that an ice ring mask will be added to the simulated image")
     parser.add_argument("--bgOnly", action="store_true", help="Only simulate background scattering")
+    parser.add_argument("--randTilt", action="store_true", help="Randomize detector tilt angles")
+    parser.add_argument("--fix3fold", action="store_true", help="Ensure F_latt is 3-fold symmetric")
+    parser.add_argument("--xtalShape", default="gauss", type = str, help="shape factor of the relp, can be gauss, square, or gauss_star (default=gauss)")
+    parser.add_argument("--shotsPerEx", default=1, type=int, help="number of shots per example, if more than 1, each shot will have same params but a random Umat")
     if use_joblib:
         parser.add_argument("--njobs", default=None, type=int, help="number of jobs")
     args = parser.parse_args()
@@ -163,8 +167,11 @@ def run(args, seeds, jid, njobs, gvec=None):
     # instantiate the simulator class
     HS = Simulator(DET, BEAM, cuda=not args.cpuMode,
                    verbose=args.verbose and jid==0)
-
+    HS.fix_threefolds = args.fix3fold
+    HS.randomize_tilt = args.randTilt
     HS.bg_only = args.bgOnly
+    HS.xtal_shape = args.xtalShape
+    HS.shots_per_example = args.shotsPerEx
     # sample-to-detector distance and pixel size
     #detdist = abs(DET[0].get_distance())
     pixsize = DET[0].get_pixel_size()[0]
@@ -183,9 +190,11 @@ def run(args, seeds, jid, njobs, gvec=None):
     outname = os.path.join(args.outdir, "%s%d.h5" %(prefix,jid))
     if jid==0:
         cmd = os.path.join(args.outdir, "commandline.txt")
+        config = open(paths_and_const.__file__, 'r').read()
         with open(cmd, "w") as o:
             o.write("working dir: %s\n" % os.getcwd())
             o.write("Python command: " + " ".join(sys.argv) + "\n")
+            o.write("\nConfiguration (paths_and_const.py):\n%s" % config)
 
     with h5py.File(outname, "w") as out:
         out.create_dataset("nominal_mask", data=mask)
@@ -199,9 +208,14 @@ def run(args, seeds, jid, njobs, gvec=None):
             comp_args["compression"] = "gzip"
             comp_args["shuffle"] = True
             comp_args["dtype"] = np.uint16
+        dset_shape = (Nshot,) + ds_shape
+        chunks = (1,)+ds_shape
+        if args.shotsPerEx > 1:
+            dset_shape = (Nshot, args.shotsPerEx) + ds_shape
+            chunks = (1, args.shotsPerEx)+ds_shape
         dset = out.create_dataset("images",
-                                  shape=(Nshot,) + ds_shape,
-                                  chunks = (1,)+ds_shape,
+                                  shape=dset_shape,
+                                  chunks=chunks,
                                   **comp_args)
 
         comp_args.pop("dtype")
@@ -220,7 +234,7 @@ def run(args, seeds, jid, njobs, gvec=None):
                        "beam_center_fast", "beam_center_slow",
                        "cent_fast_train", "cent_slow_train",
                        "Na", "Nb", "Nc", "pdb", "mos_spread","xtal_scale"] \
-                      + ["r%d" % x for x in range(1, 10)]
+                      + ["r%d" % x for x in range(1, 10)] + ['pitch_deg', 'yaw_deg']
         geom_names = ["detdist", "wavelen", "pixsize", "xdim", "ydim"]
         lab_dset = out.create_dataset("labels", dtype=np.float32, shape=(Nshot, len(param_names)) , **comp_args)
         geom_dset = out.create_dataset("geom", dtype=np.float32, shape=(Nshot, len(geom_names)), **comp_args)
@@ -281,7 +295,7 @@ def run(args, seeds, jid, njobs, gvec=None):
                 cbf_name = os.path.join(cbf_dir, "shot_1_%05d.cbf" % i_shot)
                 cbf_names.append(os.path.abspath(cbf_name))
 
-            params, spots, img, shot_det, shot_beam = HS.simulate(rot_mat=rotMats[i_shot],
+            params, spots, imgs, shot_det, shot_beam = HS.simulate(rot_mat=rotMats[i_shot],
                                       multi_lattice_chance=args.multiChance,
                                       mos_min_max=args.mosMinMax,
                                       max_lat=args.maxLat,
@@ -304,6 +318,7 @@ def run(args, seeds, jid, njobs, gvec=None):
                                               beam_x=beam_x, beam_y=beam_y)[0]
 
             if args.sanityTestOps:
+                assert args.shotsPerEx == 1
                 pdb_name = params['pdb_name']
                 pdb_id = os.path.basename(pdb_name)
                 OPS = np.load(paths_and_const.SGOP_FILE, allow_pickle=True)[()][pdb_id]
@@ -314,7 +329,7 @@ def run(args, seeds, jid, njobs, gvec=None):
                     rot2 = np.dot(rotMats[i_shot], np.reshape(U_o, (3,3)))
                     print("Doing op %d / %d" %(i_op+1, len(OPS)))
                     print(U_o)
-                    params2, spots2, img2, _, _ = HS.simulate(rot_mat=rot2,
+                    params2, spots2, imgs2, _, _ = HS.simulate(rot_mat=rot2,
                                                      multi_lattice_chance=args.multiChance,
                                                      mos_min_max=args.mosMinMax,
                                                      max_lat=args.maxLat,
@@ -327,7 +342,17 @@ def run(args, seeds, jid, njobs, gvec=None):
                                                      randomize_scale=args.randScale,
                                                      low_bg_chance=args.lowBgChance,
                                                      uniform_reso=args.uniReso)
-                    assert np.allclose(spots, spots2)
+                    if not np.allclose(spots, spots2):
+                        assert args.centerCrop  # we only care about this allclose test if center crop is true (orientation mode)
+                        max_pool = counter_utils.mx_gamma(stride=center_ds_fact, dim=cropdim)
+                        ds_spots = []
+                        for sp_img in [spots, spots2]:
+                            ds_sp = counter_utils.process_image(sp_img, max_pool, useSqrt=True)[0]
+                            IMAX = np.sqrt(65535)
+                            ds_sp[ds_sp > IMAX] = IMAX
+                            ds_sp = ds_sp.numpy().astype(np.uint16)
+                            ds_spots.append(ds_sp)
+                        assert np.allclose(ds_spots[0], ds_spots[1])
                 exit()
 
             # at what pixel radius does this resolution corresond to
@@ -366,15 +391,17 @@ def run(args, seeds, jid, njobs, gvec=None):
                 shot_mask = np.logical_and(shot_mask, ~is_ice_ring)
 
             # add hot pixels
-            npix = img.size
+            npix = imgs[0].size
             if args.addHot:
                 nhot = np.random.randint(0, 6)
                 hot_inds = np.random.permutation(npix)[:nhot]
 
-                img_1d = img.ravel()
-                img_1d[hot_inds] = 2**16
-                img = img_1d.reshape(img.shape)
-                img *= shot_mask
+                for i_img, img in enumerate(imgs):
+                    img_1d = img.ravel()
+                    img_1d[hot_inds] = 2**16
+                    img = img_1d.reshape(img.shape)
+                    img *= shot_mask
+                    imgs[i_img] = img
 
             # add bad pixels
             if args.addBad:
@@ -383,22 +410,20 @@ def run(args, seeds, jid, njobs, gvec=None):
                 nbad = np.random.randint(min_npix, max_npix)
                 bad_inds = np.random.permutation(npix)[:nbad]
 
-                img_1d = img.ravel()
-                img_1d[bad_inds] = 0
-                img = img_1d.reshape(img.shape)
-                img *= shot_mask
+                for i_img, img in enumerate(imgs):
+                    img_1d = img.ravel()
+                    img_1d[bad_inds] = 0
+                    img = img_1d.reshape(img.shape)
+                    img *= shot_mask
+                    imgs[i_img] = img
 
             if paths_and_const.LAUE_MODE:
                 ave_pool = counter_utils.mx_gamma(stride=center_ds_fact, use_mean=True)
                 ds_wavelen = counter_utils.process_image(params['wavelen_data'],
                                                          ave_pool, useSqrt=False)[0]
-
-            if paths_and_const.PEAK_MODE:
-                img = spots > np.percentile(spots,99.99)
-
+            # Rules for downsampling
             if args.centerCrop:
                 max_pool = counter_utils.mx_gamma(stride=center_ds_fact, dim=cropdim)
-                ds_img = counter_utils.process_image(img, max_pool, useSqrt=True)[0]
                 dx = xdim *.5 / center_ds_fact - cropdim*.5
                 dy = ydim *.5 / center_ds_fact - cropdim*.5
                 cent_x_train = cent_x / center_ds_fact - dx
@@ -408,10 +433,23 @@ def run(args, seeds, jid, njobs, gvec=None):
                 q = 'A'
                 if args.randQuad:
                     q = np.random.choice(["A", "B", "C", "D"])
-                ds_img = to_tens(img, shot_mask, maxpool=max_pool, ds_fact=quad_ds_fact, quad=q)
                 # TODO update cent_x_train, cent_y_train
                 cent_x_train = (cent_x - xdim*.5)/quad_ds_fact #factor
                 cent_y_train = (cent_y - ydim*.5)/quad_ds_fact #factor
+
+            ds_imgs = []
+            for i_img, img in enumerate(imgs):
+
+                if paths_and_const.PEAK_MODE:
+                    spots_i = spots[i_img]
+                    img = spots_i > np.percentile(spots_i,99.99)
+
+                if args.centerCrop:
+                    ds_img = counter_utils.process_image(img, max_pool, useSqrt=True)[0]
+                else:
+                    ds_img = to_tens(img, shot_mask, maxpool=max_pool, ds_fact=quad_ds_fact, quad=q)
+
+                ds_imgs.append(ds_img)
 
             # convert cent_x, cent_y to downsampled version
             Na, Nb, Nc = params["Ncells_abc"]
@@ -432,7 +470,9 @@ def run(args, seeds, jid, njobs, gvec=None):
                  PDB_MAP[params["pdb_name"]],
                  params["mos_spread"],
                  params["crystal_scale"],
-                 r1,r2,r3,r4,r5,r6,r7,r8,r9]
+                 r1,r2,r3,r4,r5,r6,r7,r8,r9,
+                 params['pitch_deg'], params['yaw_deg']]
+
             geom_array = [params["detector_distance"],
                              params["wavelength"],
                              pixsize,
@@ -442,10 +482,16 @@ def run(args, seeds, jid, njobs, gvec=None):
             #    raw_dset[i_shot] = img[None]
             if args.compress:
                 IMAX=np.sqrt(65535)
-                ds_img[ds_img > IMAX] = IMAX
-                ds_img = ds_img.numpy().astype(np.uint16)
+                for i_ds_img, ds_img in enumerate(ds_imgs):
+                    ds_img[ds_img > IMAX] = IMAX
+                    ds_img = ds_img.numpy().astype(np.uint16)
+                    ds_imgs[i_ds_img] = ds_img
 
-            dset[i_shot] =ds_img
+            if args.shotsPerEx == 1:
+                assert len(ds_imgs)==1
+                dset[i_shot] = ds_imgs[0]
+            else:
+                dset[i_shot] = ds_imgs
             geom_dset[i_shot] = geom_array
             lab_dset[i_shot] = param_arr
 

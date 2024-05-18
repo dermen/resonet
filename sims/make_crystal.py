@@ -56,7 +56,7 @@ def get_Nabc(ucell, scale=1):
     return Na, Nb, Nc
 
 
-def load_crystal(folder, rot_mat=None, scale=1, cut_1p2=False):
+def load_crystal(folder, rot_mat=None, scale=1, cut_1p2=False, xtal_shape="square"):
     """
 
     :param folder:  pdb folder, e.g. /data/dermen/sims/pdbs/2itu
@@ -69,7 +69,7 @@ def load_crystal(folder, rot_mat=None, scale=1, cut_1p2=False):
     pdb_base = os.path.basename(folder)
     P = process_pdb.PDB(folder + '/%s.pdb' % pdb_base)
     C.dxtbx_crystal = P.p1_dxtbx_crystal
-    C.xtal_shape = paths_and_const.SHAPE
+    C.xtal_shape = xtal_shape
     if rot_mat is not None:
         Umat = C.dxtbx_crystal.get_U()
         Umat = np.dot(np.reshape(rot_mat, (3,3)), np.reshape(Umat,(3,3)))

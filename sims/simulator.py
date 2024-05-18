@@ -27,8 +27,12 @@ class Simulator:
                                       divergence=paths_and_const.DIVERGENCE_MRAD / 1e3 * 180 / np.pi)
         self.cuda=cuda
         self.verbose = verbose
-        self.shot_det = self.shot_beam = None
-        self.bg_only = False
+        self.shot_det = self.shot_beam = None   # dxtbx detector and beam of latest shot
+        self.bg_only = False  # only simulate background
+        self.randomize_tilt = False  # random tilt angle per shot
+        self.fix_threefolds = False  # correct F_latt for trigonal / hexagonal space groups (doesnt matter if using gauss_star shape)
+        self.xtal_shape = "gauss"  # shape of the RELP, can be square, gauss, or gauss_star
+        self.shots_per_example = 1  # if provided simulate will return multiple images, each with a different crystal orientation and noise
 
     def simulate(self, rot_mat=None, multi_lattice_chance=0, max_lat=2, mos_min_max=None,
                  pdb_name=None, plastic_stol=None, dev=0, mos_dom_override=None, vary_background_scale=False,
@@ -53,6 +57,11 @@ class Simulator:
         :param uniform_reso: sample resolution uniformly to edge of camera
         :return: parameters and simulated image
         """
+        if multi_lattice_chance > 0:
+            assert self.shots_per_example == 1
+        if multi_lattice_chance > 0 or self.shots_per_example > 1:
+            assert not paths_and_const.LAUE_MODE
+            assert not self.fix_threefolds
         if pdb_name is None:
             pdb_name = make_sims.choose_pdb()
         else:
@@ -61,7 +70,8 @@ class Simulator:
         crystal_scale = 1
         if randomize_scale:
             crystal_scale = np.random.choice([1,1,1,1,2,2,3])
-        C = make_crystal.load_crystal(pdb_name, rot_mat, crystal_scale, cut_1p2=paths_and_const.CUT_1P2)
+        C = make_crystal.load_crystal(pdb_name, rot_mat, crystal_scale, cut_1p2=paths_and_const.CUT_1P2,
+                                      xtal_shape=self.xtal_shape)
         mos_min = mos_max = None  # will default to values in paths_and_const.py
         if mos_min_max is not None:
             mos_min, mos_max = mos_min_max
@@ -84,7 +94,9 @@ class Simulator:
         S = sim_data.SimData()
         S.crystal = C
 
-        if randomize_dist is not None or randomize_center or randomize_wavelen is not None:
+        pitch_angle = yaw_angle = 0
+
+        if randomize_dist is not None or randomize_center or randomize_wavelen is not None or self.randomize_tilt:
             shot_beam = deepcopy(self.BEAM)
             if randomize_wavelen is not None:
                 energy_ev = randomize_wavelen()
@@ -107,6 +119,16 @@ class Simulator:
                 cent_window_pix = int(cent_window_mm/shot_det[0].get_pixel_size()[0])
                 new_cent_x, new_cent_y = np.random.uniform(-cent_window_pix, cent_window_pix, 2)
                 shot_det = shift_center(shot_det, new_cent_x, new_cent_y)
+
+            if self.randomize_tilt:
+                pitch = paths_and_const.RANDOM_TILT_PITCH_DEG*np.pi/280
+                yaw = paths_and_const.RANDOM_TILT_YAW_DEG *np.pi/180
+                pitch_angle = np.random.uniform(-pitch, pitch)
+                yaw_angle = np.random.uniform(-yaw, yaw)
+                fast_axis = shot_det[0].get_fast_axis()
+                slow_axis = shot_det[0].get_slow_axis()
+                shot_det.rotate_around_origin(fast_axis,pitch_angle)
+                shot_det.rotate_around_origin(slow_axis,yaw_angle)
 
             air_and_water = make_sims.get_background(shot_det, shot_beam, roi=roi)
             # stol of every pixel:
@@ -135,6 +157,11 @@ class Simulator:
             print("Simulating spots!", flush=True)
         S.D.device_Id = dev
         S.D.store_ave_wavelength_image = paths_and_const.LAUE_MODE
+        if self.fix_threefolds:
+            num_blocks = len(S.D.get_mosaic_blocks())
+            p1_cryst = deepcopy(C.dxtbx_crystal)
+            ref_cryst = p1_cryst.change_basis(C.space_group_info.change_of_basis_op_to_primitive_setting().inverse())
+            S.D.set_mosaic_blocks_sym(ref_cryst, reference_symbol=C.symbol, orig_mos_domains=num_blocks)
         S.D.add_diffBragg_spots_full()
         #if self.cuda:
         #    S.D.device_Id = dev
@@ -148,22 +175,27 @@ class Simulator:
         use_multi = np.random.random() < multi_lattice_chance
         ang_sigma = 0
         num_additional_lat = 0
-        if use_multi:
-            num_additional_lat = np.random.choice(range(1,max_lat))
-            mats = Rotation.random(num_additional_lat).as_matrix()
-            vecs = np.dot(np.array([1, 0, 0])[None], mats)[0]
-
-            if old_multi_spread:
-                ang_sigma = np.random.choice([0.1,1,10])
-                angs = np.random.normal(0, ang_sigma, num_additional_lat)
-            else:
-                angs = np.random.uniform(1, 180, num_additional_lat)
-                ang_sigma = np.std(np.append(angs,[0]))
-            scaled_vecs = vecs*angs[:, None]
-            rot_mats = Rotation.from_rotvec(scaled_vecs).as_matrix()
-
+        extra_shots = []
+        if use_multi or self.shots_per_example > 1:
             nominal_crystal = S.crystal.dxtbx_crystal
             Umat = np.reshape(nominal_crystal.get_U(), (3, 3))
+            if use_multi:
+                num_additional_lat = np.random.choice(range(1,max_lat))
+                mats = Rotation.random(num_additional_lat).as_matrix()
+                vecs = np.dot(np.array([1, 0, 0])[None], mats)[0]
+
+                if old_multi_spread:
+                    ang_sigma = np.random.choice([0.1,1,10])
+                    angs = np.random.normal(0, ang_sigma, num_additional_lat)
+                else:
+                    angs = np.random.uniform(1, 180, num_additional_lat)
+                    ang_sigma = np.std(np.append(angs,[0]))
+                scaled_vecs = vecs*angs[:, None]
+                rot_mats = Rotation.from_rotvec(scaled_vecs).as_matrix()
+            else:
+                num_additional_lat = self.shots_per_example - 1
+                rot_mats = Rotation.random(num_additional_lat).as_matrix()
+
             for i_p, perturb in enumerate(rot_mats):
                 if self.verbose:
                     print("additional multi lattice sim %d" % (i_p+1), flush=True)
@@ -177,9 +209,18 @@ class Simulator:
                 else:
                     S.D.add_nanoBragg_spots()
 
-                spots += S.D.raw_pixels.as_numpy_array()
-            spots /= (num_additional_lat+1)
+                this_latt_spots = S.D.raw_pixels.as_numpy_array()
+                if use_multi:
+                    spots += this_latt_spots
+                else:
+                    extra_shots.append(this_latt_spots)
+            # only normalize if we summed the shots (multi-lattice mode)
+            if use_multi:
+                spots /= (num_additional_lat+1)
 
+        all_spots = [spots] + extra_shots
+
+        # TODO: reconcile wavelen_data for case when use_multi=True or self.shots_per_example>1
         wavelen_data = None
         if paths_and_const.LAUE_MODE:
             wavelen_data = S.D.ave_wavelength_image().as_numpy_array().reshape(img_sh)
@@ -211,17 +252,22 @@ class Simulator:
             if self.verbose:
                 print("Scaling background by %.3f" % bg_scale)
 
-        spots_scaled = Bfac_img*paths_and_const.VOL*spots
-        if self.bg_only:
-            img = bg*bg_scale
-        else:
-            img = spots_scaled + bg*bg_scale
-
         make_sims.set_noise(S.D)
+        noise_imgs = []
+        all_spots_scaled = []
+        for spots in all_spots:
+            spots_scaled = Bfac_img*paths_and_const.VOL*spots
+            all_spots_scaled.append(spots_scaled)
+            if self.bg_only:
+                img = bg*bg_scale
+            else:
+                img = spots_scaled + bg*bg_scale
 
-        S.D.raw_pixels = flex.double(img.ravel())
-        S.D.add_noise()
-        noise_img = S.D.raw_pixels.as_numpy_array().reshape(img_sh)
+
+            S.D.raw_pixels = flex.double(img.ravel())
+            S.D.add_noise()
+            noise_img = S.D.raw_pixels.as_numpy_array().reshape(img_sh)
+            noise_imgs.append(noise_img)
 
         param_dict = {"reso": reso,
                       "multi_lattice": use_multi,
@@ -236,6 +282,8 @@ class Simulator:
                       "mos_spread": mos_spread,
                       "crystal_scale": crystal_scale,
                       "Umat": S.crystal.dxtbx_crystal.get_U(),
+                      "pitch_deg": pitch_angle*180/np.pi,
+                      "yaw_deg": yaw_angle*180/np.pi,
                       "wavelen_data": wavelen_data}
 
         if cbf_name:
@@ -247,7 +295,7 @@ class Simulator:
 
         self.shot_det = shot_det
         self.shot_beam = shot_beam
-        return param_dict, spots_scaled, noise_img, shot_det, shot_beam
+        return param_dict, all_spots_scaled, noise_imgs, shot_det, shot_beam
 
 
 def reso2radius(reso, DET, BEAM):

@@ -18,8 +18,8 @@ class H5SimDataDset(Dataset):
         :param dev: pytorch device
         :param labels: path to labels dataset
         :param images: path to images dataset
-        :param start: dataset index to begin
-        :param stop: dataset index to stop
+        :param start: dataset index to begin (default=0)
+        :param stop: dataset index to stop (default= all images)
         :param label_names: optional list of labels to select. This requires that the dataset
             specified by labels has names. this can alternatively be a list of numbers
             specifying the indices of the labels dataset

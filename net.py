@@ -47,6 +47,7 @@ def get_parser():
     parser.add_argument("--manualSeed", default=None, type=int, help="set to an integer in order to produce a reproducible training run")
     parser.add_argument("--kernelSize", type=int, default=7, help="Size of the resnet conv1 kernel (default=7)")
     parser.add_argument("--numFC", type=int, default=100, help="num FC 1")
+    parser.add_argument("--testMaster", type=str, default=None, help="optional master file to read test examples. Inference will be tested against these data in addition to the training and validation sets")
     return parser
 
 
@@ -307,7 +308,7 @@ def do_training(h5input, h5label, h5imgs, outdir,
          title=None, COMM=None, ngpu_per_node=1, use_geom=False,
          error=0.3, weights=None, use_transform=False,
          cp=None, ori_mode=False, eval_mode_only=True, debug_mode=False,
-         use_sgnums=False, manual_seed=None, kernel_size=7, num_fc=100):
+         use_sgnums=False, manual_seed=None, kernel_size=7, num_fc=100, test_master=None):
 
     training_args = list(locals().items())
     # model and criterion choices
@@ -361,6 +362,10 @@ def do_training(h5input, h5label, h5imgs, outdir,
 
     all_imgs = H5SimDataDset(h5input,
                                start=0, stop=ntrain + ntest, transform=transform, **common_args)
+    test_extern_imgs = None
+    if test_master:
+        test_extern_imgs = H5SimDataDset(test_master, transform=transform,
+                                  **common_args)
 
     print("Randomly splitting the datasets!")
     gen = torch.Generator().manual_seed(0)
@@ -437,19 +442,23 @@ def do_training(h5input, h5label, h5imgs, outdir,
     mx_acc = 0
 
     shuffle = True
-    train_sampler = train_validate_sampler = test_sampler = None
+    train_sampler = train_validate_sampler = test_sampler = test_extern_sampler = None
     if COMM is not None:
         shuffle = None
         train_sampler = DistributedSampler(train_imgs, rank=COMM.rank, num_replicas=COMM.size)
         train_validate_sampler = DistributedSampler(train_imgs_validate) 
-        test_sampler = DistributedSampler(test_imgs) 
-         
+        test_sampler = DistributedSampler(test_imgs)
+        if test_extern_imgs is not None:
+            test_extern_sampler = DistributedSampler(test_extern_imgs)
+
     train_tens = DataLoader(train_imgs, batch_size=bs, shuffle=shuffle, 
                         sampler=train_sampler)
     train_tens_validate = DataLoader(train_imgs_validate, batch_size=bs, shuffle=shuffle, 
                         sampler=train_validate_sampler)
     test_tens = DataLoader(test_imgs, batch_size=bs, shuffle=shuffle, sampler=test_sampler)
-
+    test_extern_tens = None
+    if test_extern_imgs is not None:
+        test_extern_tens = DataLoader(test_extern_imgs, batch_size=1, shuffle=shuffle, sampler=test_extern_sampler)
     nbatch = np.ceil((train_stop - train_start) / bs)
     if COMM is not None:
         nbatch = np.ceil((train_stop - train_start) / bs / COMM.size)
@@ -511,7 +520,14 @@ def do_training(h5input, h5label, h5imgs, outdir,
             acc, test_loss, test_lab, test_pred = validate(test_tens, nety, epoch, criterion, COMM, error=error)
             logger.info("Computing train accuracy:")
             train_acc,train_loss,_,_ = validate(train_tens_validate, nety, epoch, criterion, COMM, error=error)
-            logger.info("Train loss=%.7f, Test loss=%.7f" % (train_loss, test_loss))
+            if test_extern_tens is not None:
+                logger.info("Computing test-external accuracy:")
+                ext_acc, test_ext_loss, _, _ = validate(test_extern_tens, nety, epoch, criterion, COMM, error=error)
+
+            if test_extern_tens is not None:
+                logger.info("Train loss=%.7f, Test loss=%.7f, Test extern loss=%.7f" % (train_loss, test_loss, test_ext_loss))
+            else:
+                logger.info("Train loss=%.7f, Test loss=%.7f" % (train_loss, test_loss))
 
             mx_acc = max(acc, mx_acc)
 
@@ -598,7 +614,8 @@ def main():
                 use_geom=args.useGeom, error=args.error, weights=args.weights,
                 use_transform=args.transform, eval_mode_only=not args.noEvalOnly,
                 ori_mode=args.oriMode, debug_mode=args.debugMode,
-                use_sgnums=args.useSGNums, manual_seed=args.manualSeed, kernel_size=args.kernelSize, num_fc=args.numFC)
+                use_sgnums=args.useSGNums, manual_seed=args.manualSeed, kernel_size=args.kernelSize, num_fc=args.numFC,
+                test_master=args.testMaster)
 
 
 if __name__ == "__main__":
