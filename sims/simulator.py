@@ -289,7 +289,7 @@ class Simulator:
             raw_pix = deepcopy(S.D.raw_pixels)
             raw_pix.resize(flex.grid((ydim, xdim)))
             S.D.raw_pixels = raw_pix
-            S.D.to_cbf(cbf_name)
+            S.D.to_cbf(cbf_name, toggle_conventions=True)
         S.D.free_all()
 
         self.shot_det = shot_det
