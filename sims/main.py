@@ -295,13 +295,16 @@ def run(args, seeds, jid, njobs, gvec=None):
                 cbf_name = os.path.join(cbf_dir, "shot_1_%05d.cbf" % i_shot)
                 cbf_names.append(os.path.abspath(cbf_name))
 
+            pdb_name = args.pdbName
+            if pdb_name is not None:
+                pdb_name = pdb_name.replace("//","/")
             params, spots, imgs, shot_det, shot_beam = HS.simulate(rot_mat=rotMats[i_shot],
                                       multi_lattice_chance=args.multiChance,
                                       mos_min_max=args.mosMinMax,
                                       max_lat=args.maxLat,
                                       dev=dev, mos_dom_override=args.nmos,
                                       vary_background_scale=args.varyBgScale,
-                                      pdb_name=args.pdbName,
+                                      pdb_name=pdb_name,
                                       randomize_dist=random_dist,
                                       randomize_center=args.randCent,
                                       randomize_wavelen=random_wave,
