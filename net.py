@@ -11,7 +11,7 @@ def get_parser():
     parser.add_argument("--noDisplay", action="store_true", help="dont shot plots")
     parser.add_argument("--bs", type=int,default=16, help="batch size")
     parser.add_argument("--loss", type=str, choices=["L1", "L2", "BCE", "BCE2"], default="L1", help="loss function selector")
-    parser.add_argument("--gpuid", type=int, help="device Id", default=0)
+    parser.add_argument("--gpuid", type=int, help="device Id, pass a -1 in order to run on CPU", default=0)
     parser.add_argument("--saveFreq", type=int, default=10, help="how often to write the model to disk")
     parser.add_argument("--arch", type=str, choices=["le", "res18", "res50", "res34", "res101", "res152", "counter"],
                         default="res50", help="architecture selector")
@@ -597,6 +597,9 @@ def main():
         train_start_stop = args.trainRange
     if args.testRange is not None:
         test_start_stop = args.testRange
+    dev = "cuda:%d" % args.gpuid
+    if args.gpuid == -1:
+        dev = "cpu"
     do_training(args.input, args.labelName, args.imgsName, args.outdir,
                 train_start_stop=train_start_stop,
                 test_start_stop=test_start_stop,
@@ -606,7 +609,7 @@ def main():
                 dropout=args.dropout,
                 lr=args.lr, bs=args.bs, max_ep=args.ep,
                 arch=args.arch, loss=args.loss,
-                dev="cuda:%d" % args.gpuid,
+                dev=dev,
                 logfile=args.logfile, loglevel=args.loglevel,
                 label_sel=args.labelSel,
                 half_precision=args.half,

@@ -263,7 +263,6 @@ class Simulator:
             else:
                 img = spots_scaled + bg*bg_scale
 
-
             S.D.raw_pixels = flex.double(img.ravel())
             S.D.add_noise()
             noise_img = S.D.raw_pixels.as_numpy_array().reshape(img_sh)
