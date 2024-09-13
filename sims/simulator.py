@@ -33,6 +33,7 @@ class Simulator:
         self.fix_threefolds = False  # correct F_latt for trigonal / hexagonal space groups (doesnt matter if using gauss_star shape)
         self.xtal_shape = "gauss"  # shape of the RELP, can be square, gauss, or gauss_star
         self.shots_per_example = 1  # if provided simulate will return multiple images, each with a different crystal orientation and noise
+        self.mask = None  # place holder for numpy-style pixel mask
 
     def simulate(self, rot_mat=None, multi_lattice_chance=0, max_lat=2, mos_min_max=None,
                  pdb_name=None, plastic_stol=None, dev=0, mos_dom_override=None, vary_background_scale=False,
@@ -287,6 +288,10 @@ class Simulator:
 
         if cbf_name:
             raw_pix = deepcopy(S.D.raw_pixels)
+            if self.mask is not None:
+                raw_pix = raw_pix.as_numpy_array().ravel()
+                raw_pix[~self.mask.ravel()] = -1
+                raw_pix = flex.double(raw_pix)
             raw_pix.resize(flex.grid((ydim, xdim)))
             S.D.raw_pixels = raw_pix
             S.D.to_cbf(cbf_name, toggle_conventions=True)

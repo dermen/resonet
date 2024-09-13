@@ -57,7 +57,6 @@ def args(use_joblib=False):
     parser.add_argument("--centerCrop", action="store_true", help="Alternative to quad downsampling, downsample whole image by a factor and "
                                                                   "crop around the center")
     parser.add_argument("--sanityTestOps", action="store_true", help="If True, then ensure application of operators in the SGOPS file produce the same diffraction pattern")
-    parser.add_argument("--iceMaskChance", type=float, default=0, help="Number 0-1, probability that an ice ring mask will be added to the simulated image")
     parser.add_argument("--bgOnly", action="store_true", help="Only simulate background scattering")
     parser.add_argument("--randTilt", action="store_true", help="Randomize detector tilt angles")
     parser.add_argument("--fix3fold", action="store_true", help="Ensure F_latt is 3-fold symmetric")
@@ -134,15 +133,7 @@ def run(args, seeds, jid, njobs, gvec=None):
             mask = np.load(args.mask)
             assert len(mask.shape) == 2
 
-    # Load the ice d spacings for doing ice masking later
-    #unit_cell = uctbx.unit_cell((4.498, 4.498, 7.338, 90, 90, 120))
-    #space_group = sgtbx.space_group_info(number=194).group()
-    #indices = index_generator(unit_cell, space_group.type(), False, 1).to_array()
-    #dsd = unit_cell.d_star_sq(indices)
-    #ice_d = sorted(1 / np.sqrt(dsd.as_numpy_array()))
-    from resonet.utils.ice_mask import IceMasker
     geom_dict = {"detector":DET, "beam":BEAM}
-    ice_masker = IceMasker(dxtbx_geom_dict=geom_dict)
 
     # TODO: check whether factor is meant to be replaced totally by quad_ds_fact, and adjust rest of code accordingly
     # process the raw images according to detector model
@@ -298,6 +289,35 @@ def run(args, seeds, jid, njobs, gvec=None):
             pdb_name = args.pdbName
             if pdb_name is not None:
                 pdb_name = pdb_name.replace("//","/")
+
+            # load a mask for this shot
+            if maskfiles:
+                # choose a random mask for this shot
+                maskname = np.random.choice(maskfiles)
+                shot_mask = np.load(maskname)
+                if jid == 0:
+                    print("Loading mask %s" % maskname)
+            else:
+                shot_mask = mask.copy()
+            # add optional beamstop mask:
+            beamstop_rad=-1
+            if args.beamStop:
+                # assume beamstop can vary in radius from 0 to 15 mm
+                beamstop_rad_mm = np.random.choice(np.arange(0,15.1,0.375))
+                beamstop_rad = int(beamstop_rad_mm/pixsize)
+
+                # jitter the beamstop center by 0.5 mm
+                bs_jitt = .5/pixsize
+                bs_cent_x = np.random.uniform(cent_x-bs_jitt, cent_x+bs_jitt)
+                bs_cent_y = np.random.uniform(cent_y-bs_jitt, cent_y+bs_jitt)
+                pixR = np.sqrt((X - bs_cent_x) ** 2 + (Y - bs_cent_y) ** 2)
+                is_in_beamstop = pixR < beamstop_rad
+                if args.verbose:
+                    print("beamstop rad=%.1f" % beamstop_rad)
+                shot_mask = np.logical_and(shot_mask, ~is_in_beamstop)
+
+            HS.mask = shot_mask
+
             params, spots, imgs, shot_det, shot_beam = HS.simulate(rot_mat=rotMats[i_shot],
                                       multi_lattice_chance=args.multiChance,
                                       mos_min_max=args.mosMinMax,
@@ -312,13 +332,6 @@ def run(args, seeds, jid, njobs, gvec=None):
                                       low_bg_chance=args.lowBgChance,
                                       uniform_reso=args.uniReso,
                                       cbf_name=cbf_name)
-            is_ice_ring = None
-            if args.iceMaskChance > np.random.random():
-                distance = shot_det[0].get_distance()
-                wavelen = shot_beam.get_wavelength()
-                beam_x, beam_y = shot_det[0].get_beam_centre_px(shot_beam.get_unit_s0())
-                is_ice_ring = ice_masker.mask(distance=distance, wavelength=wavelen,
-                                              beam_x=beam_x, beam_y=beam_y)[0]
 
             if args.sanityTestOps:
                 assert args.shotsPerEx == 1
@@ -363,35 +376,7 @@ def run(args, seeds, jid, njobs, gvec=None):
 
             cent_x, cent_y = params["beam_center"]
 
-            # load a mask for this shot
-            if maskfiles:
-                # choose a random mask for this shot
-                maskname = np.random.choice(maskfiles)
-                shot_mask = np.load(maskname)
-                if jid == 0:
-                    print("Loading mask %s" % maskname)
-            else:
-                shot_mask = mask.copy()
-            # add optional beamstop mask:
-            beamstop_rad=-1
-            if args.beamStop:
-                # assume beamstop can vary in radius from 0 to 15 mm
-                beamstop_rad_mm = np.random.choice(np.arange(0,15.1,0.375))
-                beamstop_rad = int(beamstop_rad_mm/pixsize)
 
-                # jitter the beamstop center by 0.5 mm
-                bs_jitt = .5/pixsize
-                bs_cent_x = np.random.uniform(cent_x-bs_jitt, cent_x+bs_jitt)
-                bs_cent_y = np.random.uniform(cent_y-bs_jitt, cent_y+bs_jitt)
-                pixR = np.sqrt((X - bs_cent_x) ** 2 + (Y - bs_cent_y) ** 2)
-                is_in_beamstop = pixR < beamstop_rad
-                if args.verbose:
-                    print("beamstop rad=%.1f" % beamstop_rad)
-                shot_mask = np.logical_and(shot_mask, ~is_in_beamstop)
-
-            # optionally add ice mask
-            if is_ice_ring is not None:
-                shot_mask = np.logical_and(shot_mask, ~is_ice_ring)
 
             # add hot pixels
             npix = imgs[0].size
