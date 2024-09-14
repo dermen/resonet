@@ -2,11 +2,10 @@
 import numpy as np
 from scipy.ndimage import binary_erosion
 try:
-    from dials.algorithms.integration import filtering
     from dxtbx.model import DetectorFactory, BeamFactory, Detector, Panel, Beam
-    has_dials=True
+    has_dxtbx=True
 except ImportError:
-    has_dials = False
+    has_dxtbx = False
 
 from resonet.utils import qmags
 
@@ -26,6 +25,7 @@ class IceMasker:
             'fast_dim': the fast-scan dimension of the 2D image (integer)
             'slow_dim': the slow-scan dimension of the 2D image (integer)
         """
+        assert has_dxtbx
         if dxtbx_geom_dict is None:
             assert simple_geom_dict is not None, "Need one of dxtbx_geom_dict or simple_geom_dict to be not None"
             self.wavelen = simple_geom_dict["wavelength_Ang"]
@@ -56,11 +56,25 @@ class IceMasker:
         # define the Q of each pixel
         self.Q = qmags.qmags(shot_det, shot_beam)
         # this filter lists the ice ring bounds in units of 1/dstar_squared
-        self.ice_filt = filtering.IceRingFilter()
+        self.ice_filt_rings = [(0.064, 0.069),
+           (0.071, 0.078),
+           (0.0825, 0.088),
+           (0.138, 0.144),
+           (0.19, 0.205),
+           (0.228, 0.24),
+           (0.262, 0.266),
+           (0.267, 0.278),
+           (0.28, 0.288),
+           (0.337, 0.341),
+           (0.429, 0.435),
+           (0.459, 0.466),
+           (0.478, 0.486),
+           (0.531, 0.537)]
+
         # so we convert them to units of Q (1/d)
         # we flatten (ravel) the Nx2 array of Q bins, so we can quickly determine
         # from a list of Qs (the detector pixels) which ones are within a bound
-        self.ice_qbins = np.sqrt(self.ice_filt.ice_rings).ravel()
+        self.ice_qbins = np.sqrt(self.ice_filt_rings).ravel()
 
         # set the ice ring mask
         self._set_is_ice_pixel()

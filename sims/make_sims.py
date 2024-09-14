@@ -5,7 +5,7 @@ from scipy.interpolate import interp1d
 import time
 
 import dxtbx
-from dials.array_family import flex
+from scitbx.array_family import flex
 from simtbx.diffBragg import utils
 from simtbx.nanoBragg import utils as nb_utils
 from simtbx.nanoBragg import sim_data

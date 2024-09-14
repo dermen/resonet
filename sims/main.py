@@ -62,6 +62,7 @@ def args(use_joblib=False):
     parser.add_argument("--fix3fold", action="store_true", help="Ensure F_latt is 3-fold symmetric")
     parser.add_argument("--xtalShape", default="gauss", type = str, help="shape factor of the relp, can be gauss, square, or gauss_star (default=gauss)")
     parser.add_argument("--shotsPerEx", default=1, type=int, help="number of shots per example, if more than 1, each shot will have same params but a random Umat")
+    parser.add_argument("--randHits", action="store_true", help="generate diffraction+background images and background-only images with equal probability")
     if use_joblib:
         parser.add_argument("--njobs", default=None, type=int, help="number of jobs")
     args = parser.parse_args()
@@ -225,7 +226,7 @@ def run(args, seeds, jid, njobs, gvec=None):
                        "beam_center_fast", "beam_center_slow",
                        "cent_fast_train", "cent_slow_train",
                        "Na", "Nb", "Nc", "pdb", "mos_spread","xtal_scale"] \
-                      + ["r%d" % x for x in range(1, 10)] + ['pitch_deg', 'yaw_deg']
+                      + ["r%d" % x for x in range(1, 10)] + ['pitch_deg', 'yaw_deg', "bg_only"]
         geom_names = ["detdist", "wavelen", "pixsize", "xdim", "ydim"]
         lab_dset = out.create_dataset("labels", dtype=np.float32, shape=(Nshot, len(param_names)) , **comp_args)
         geom_dset = out.create_dataset("geom", dtype=np.float32, shape=(Nshot, len(geom_names)), **comp_args)
@@ -317,6 +318,8 @@ def run(args, seeds, jid, njobs, gvec=None):
                 shot_mask = np.logical_and(shot_mask, ~is_in_beamstop)
 
             HS.mask = shot_mask
+            if not args.bgOnly and args.randHits:
+                HS.bg_only = np.random.choice([0,1])
 
             params, spots, imgs, shot_det, shot_beam = HS.simulate(rot_mat=rotMats[i_shot],
                                       multi_lattice_chance=args.multiChance,
@@ -459,7 +462,8 @@ def run(args, seeds, jid, njobs, gvec=None):
                  params["mos_spread"],
                  params["crystal_scale"],
                  r1,r2,r3,r4,r5,r6,r7,r8,r9,
-                 params['pitch_deg'], params['yaw_deg']]
+                 params['pitch_deg'], params['yaw_deg'],
+                 1 if HS.bg_only else 0]
 
             geom_array = [params["detector_distance"],
                              params["wavelength"],

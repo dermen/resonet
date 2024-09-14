@@ -7,7 +7,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from simtbx.nanoBragg import sim_data
-from dials.array_family import flex
+from scitbx.array_family import flex
 
 
 from resonet.sims import make_sims, make_crystal, paths_and_const
@@ -157,19 +157,19 @@ class Simulator:
             S.D.show_params()
             print("Simulating spots!", flush=True)
         S.D.device_Id = dev
-        S.D.store_ave_wavelength_image = paths_and_const.LAUE_MODE
+        #S.D.store_ave_wavelength_image = paths_and_const.LAUE_MODE
         if self.fix_threefolds:
             num_blocks = len(S.D.get_mosaic_blocks())
             p1_cryst = deepcopy(C.dxtbx_crystal)
             ref_cryst = p1_cryst.change_basis(C.space_group_info.change_of_basis_op_to_primitive_setting().inverse())
             S.D.set_mosaic_blocks_sym(ref_cryst, reference_symbol=C.symbol, orig_mos_domains=num_blocks)
-        S.D.add_diffBragg_spots_full()
-        #if self.cuda:
-        #    S.D.device_Id = dev
-        #    S.D.add_nanoBragg_spots_cuda()
-        #else:
-        #    S.D.add_nanoBragg_spots()
-        spots = S.D.raw_pixels_roi.as_numpy_array()
+        #S.D.add_diffBragg_spots_full()
+        if self.cuda:
+            S.D.device_Id = dev
+            S.D.add_nanoBragg_spots_cuda()
+        else:
+            S.D.add_nanoBragg_spots()
+        spots = S.D.raw_pixels.as_numpy_array()
         xdim, ydim = shot_det[0].get_image_size()
         img_sh = ydim, xdim
         spots = spots.reshape(img_sh)
@@ -223,8 +223,8 @@ class Simulator:
 
         # TODO: reconcile wavelen_data for case when use_multi=True or self.shots_per_example>1
         wavelen_data = None
-        if paths_and_const.LAUE_MODE:
-            wavelen_data = S.D.ave_wavelength_image().as_numpy_array().reshape(img_sh)
+        #if paths_and_const.LAUE_MODE:
+        #    wavelen_data = S.D.ave_wavelength_image().as_numpy_array().reshape(img_sh)
         if self.verbose:
             print("sim random bg", flush=True)
         if plastic_stol is None:
