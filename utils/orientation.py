@@ -5,6 +5,9 @@ import numpy as np
 import torch
 from scipy.spatial.transform import Rotation
 
+dirname = os.path.join(os.path.dirname(__file__), "for_tutorial/diffraction_ai_sims_data")
+pdb_path = os.path.join(dirname, "pdbs")
+
 try:
     HAS_CCTBX=True
     from cctbx import sgtbx, uctbx
@@ -196,7 +199,7 @@ class Loss(torch.nn.Module):
 
 def make_op_table(outfile=None):
     assert HAS_CCTBX
-    pdb_path = os.path.join(os.environ["RESONET_SIMDATA"], "pdbs")
+    assert os.path.exists(pdb_path)
     pdb_id_file = os.path.join(pdb_path, "pdb_ids.txt")
     pdb_ids = [p.strip() for p in open(pdb_id_file, "r").readlines()]
 
@@ -235,7 +238,7 @@ def make_op_table(outfile=None):
 
 def make_op_table_using_nanoBragg(outfile, cuda=True):
     assert HAS_CCTBX
-    pdb_path = os.path.join(os.environ["RESONET_SIMDATA"], "pdbs")
+    assert os.path.exists(pdb_path)
     pdb_id_file = os.path.join(pdb_path, "pdb_ids.txt")
     pdb_ids = [p.strip() for p in open(pdb_id_file, "r").readlines()]
 
@@ -375,7 +378,7 @@ def make_op_table_old(outfile):
     these are to be used for training loss calculation
     :param outfile: file to save , to be assigned to resonet.sims.paths_and_const.SGOP_FILE
     """
-    pdb_path = os.path.join(os.environ["RESONET_SIMDATA"], "pdbs")
+    assert os.path.exists(pdb_path)
     pdb_id_file = os.path.join(pdb_path, "pdb_ids.txt")
     pdb_ids = [p.strip() for p in open(pdb_id_file, "r").readlines()]
 

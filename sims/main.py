@@ -1,15 +1,9 @@
 
-from argparse import ArgumentParser
-from argparse import ArgumentDefaultsHelpFormatter as arg_formatter
-import sys
-from resonet.sims.paths_and_const import PDB_MAP
-import torch
-from resonet.utils.eval_model import to_tens
-from resonet.utils import counter_utils
-from resonet.sims import paths_and_const
 
 
 def args(use_joblib=False):
+    from argparse import ArgumentParser
+    from argparse import ArgumentDefaultsHelpFormatter as arg_formatter
     parser = ArgumentParser(formatter_class=arg_formatter)
     parser.add_argument("outdir", help="path to output folder (will be created if necessary)", type=str)
     parser.add_argument("--geom", type=str,
@@ -74,6 +68,7 @@ def args(use_joblib=False):
     return parser.parse_args()
 
 
+
 def run(args, seeds, jid, njobs, gvec=None):
     """
 
@@ -82,7 +77,11 @@ def run(args, seeds, jid, njobs, gvec=None):
     :param njobs: number of jobs
     :return:
     """
+    import sys
     import os
+    dirname=os.path.join(os.path.dirname(__file__), "for_tutorial/diffraction_ai_sims_data")
+    if not os.path.exists(dirname):
+        raise OSError("Please download the simulation data first with the command `resonet-getsimdata`.")
     import time
     import h5py
     import numpy as np
@@ -90,6 +89,12 @@ def run(args, seeds, jid, njobs, gvec=None):
     from simtbx.diffBragg import utils
     from scipy.spatial.transform import Rotation
     from scipy.ndimage import binary_dilation
+    import torch
+    
+    from resonet.sims.paths_and_const import PDB_MAP
+    from resonet.utils.eval_model import to_tens
+    from resonet.utils import counter_utils
+    from resonet.sims import paths_and_const
 
     from resonet.sims.simulator import Simulator, reso2radius
 

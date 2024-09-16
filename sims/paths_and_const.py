@@ -10,9 +10,9 @@ Some constants and file paths for simulations
 # these files are slow to read: TODO convert and store in high symmetry and use CCTBX
 # to convert to P1
 
-dirname = os.environ.get("RESONET_SIMDATA")
-if dirname is None:
-    print("Warning, RESONET_SIMDATA is not set, simulation might not work!")
+dirname = os.path.join(os.path.dirname(__file__), "for_tutorial/diffraction_ai_sims_data")
+if not os.path.exists(dirname):
+    print("Warning, Could not locate simulation data. Simulations wont work until running `resonet-getsimdata`.")
     dirname="."
 
 # these are scattering profiles for random plastics (from James Holton)

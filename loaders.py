@@ -4,7 +4,6 @@ from torch.utils.data import Dataset
 import torch
 import numpy as np
 import h5py
-from resonet.sims import paths_and_const
 
 
 class H5SimDataDset(Dataset):
@@ -78,6 +77,7 @@ class H5SimDataDset(Dataset):
         if not self.use_sgnums:
             return
         else:
+            from resonet.sims import paths_and_const
             assert paths_and_const.SGOP_FILE is not None
             assert os.path.exists(paths_and_const.SGOP_FILE)
         self.ops_from_pdb = np.load(paths_and_const.SGOP_FILE, allow_pickle=True)[()]
