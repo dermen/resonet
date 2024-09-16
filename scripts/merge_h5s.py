@@ -8,8 +8,8 @@ def main():
     parser.add_argument("dirnames", nargs="+", type=str, help="output folders from runme.py or runme_joblib.py")
     parser.add_argument("outname", type=str, help="name of the  master file")
     parser.add_argument("--moreKeys", nargs="+", type=str, default=[], help="names of additional datasets to virtualize. These should be present in all rank* files!")
-    parser.add_argument("--prefix", type=str, default="rank",
-            help="merge h5 files that start with this (default: rank)")
+    parser.add_argument("--prefix", type=str, default="compressed",
+            help="merge h5 files that start with this (default: compressed)")
     args = parser.parse_args()
 
     """

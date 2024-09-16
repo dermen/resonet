@@ -33,7 +33,19 @@ def main():
     # TODO: remove this, its for debugging!
     gvec = np.array([-0.11714061589265543, 0.48394403574869455, 0.8672232967186454])
     with DeviceWrapper(dev_id) as _:
-        run(args_parsed, seeds, COMM.rank, COMM.size, gvec=gvec)
+        try:
+            run(args_parsed, seeds, COMM.rank, COMM.size, gvec=gvec)
+        except Exception as err:
+            err_file = os.path.join(args_parsed.outdir, "rank%d_failure.err" % COMM.rank)
+            with open(err_file, "w") as o:
+                from traceback import format_tb
+                import sys
+                _, _, tb = sys.exc_info()
+                tb_s = "".join(format_tb(tb))
+                err_s = str(err) + "\n" + tb_s
+                o.write(err_s)
+            raise err
+
 
 if __name__=="__main__":
     main()

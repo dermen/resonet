@@ -26,8 +26,8 @@ def args(use_joblib=False):
     parser.add_argument("--cpuMode", action="store_true",
                         help="run computation on CPU (should specify small --nmos to speed up computation)")
     parser.add_argument("--verbose", action="store_true", help="if true, show extra output (for mpi rank0 only)")
-    parser.add_argument("--addHot", action="store_true", help="randomly add hot pixels")
-    parser.add_argument("--addBad", action="store_true", help="randomly 0-out bad pixels")
+    parser.add_argument("--noHot", action="store_true", help="dont randomly add hot pixels")
+    parser.add_argument("--noBad", action="store_true", help="dont randomly 0-out pixels")
     parser.add_argument("--varyBgScale", action="store_true", help="if true, vary background scale by factor in range 0.05-1.5")
     parser.add_argument("--beamStop", action="store_true", help="if true, add a random beamstop mask to each simulated shot")
     parser.add_argument("--randDist", action="store_true", help="randomize the detector distance")
@@ -46,8 +46,7 @@ def args(use_joblib=False):
     parser.add_argument("--pdbName", type=str, default=None, help="if provided all simulations will use crystal model from this PDB")
     parser.add_argument("--lowBgChance", type=float, default=0, help="probability to simulate a log background shot (default=0)")
     parser.add_argument("--uniReso", action="store_true", help="uniformly sample resolution per shot, up to the detector maximum")
-    parser.add_argument("--randQuad", action="store_true", help="randomly choose a quad to write per image")
-    parser.add_argument("--compress", action="store_true", help="store compressed files")
+    parser.add_argument("--noCompress", action="store_true", help="store uncompressed files")
     parser.add_argument("--centerCrop", action="store_true", help="Alternative to quad downsampling, downsample whole image by a factor and "
                                                                   "crop around the center")
     parser.add_argument("--sanityTestOps", action="store_true", help="If True, then ensure application of operators in the SGOPS file produce the same diffraction pattern")
@@ -181,9 +180,9 @@ def run(args, seeds, jid, njobs, gvec=None):
     Nshot = len(np.array_split(np.arange(args.nshot), njobs)[jid])
 
     # write command line info to output folder
-    prefix = "rank"
-    if args.compress:
-        prefix = "compressed"
+    prefix = "compressed"
+    if args.noCompress:
+        prefix = "rank"
     outname = os.path.join(args.outdir, "%s%d.h5" %(prefix,jid))
     if jid==0:
         cmd = os.path.join(args.outdir, "commandline.txt")
@@ -200,7 +199,7 @@ def run(args, seeds, jid, njobs, gvec=None):
             ds_shape = cropdim, cropdim
         comp_args = {"dtype": np.float32}
 
-        if args.compress:
+        if not args.noCompress:
             comp_args["compression_opts"] = 4
             comp_args["compression"] = "gzip"
             comp_args["shuffle"] = True
@@ -388,7 +387,7 @@ def run(args, seeds, jid, njobs, gvec=None):
 
             # add hot pixels
             npix = imgs[0].size
-            if args.addHot:
+            if not args.noHot:
                 nhot = np.random.randint(0, 6)
                 hot_inds = np.random.permutation(npix)[:nhot]
 
@@ -400,7 +399,7 @@ def run(args, seeds, jid, njobs, gvec=None):
                     imgs[i_img] = img
 
             # add bad pixels
-            if args.addBad:
+            if args.noBad:
                 min_npix = int(0.01 * xdim)
                 max_npix = 3*min_npix
                 nbad = np.random.randint(min_npix, max_npix)
@@ -426,9 +425,7 @@ def run(args, seeds, jid, njobs, gvec=None):
                 cent_y_train = cent_y / center_ds_fact - dy
             else:
                 max_pool = torch.nn.MaxPool2d(quad_ds_fact, quad_ds_fact)
-                q = 'A'
-                if args.randQuad:
-                    q = np.random.choice(["A", "B", "C", "D"])
+                q = np.random.choice(["A", "B", "C", "D"])
                 # TODO update cent_x_train, cent_y_train
                 cent_x_train = (cent_x - xdim*.5)/quad_ds_fact #factor
                 cent_y_train = (cent_y - ydim*.5)/quad_ds_fact #factor
@@ -451,6 +448,19 @@ def run(args, seeds, jid, njobs, gvec=None):
             Na, Nb, Nc = params["Ncells_abc"]
             #r1,r2,r3,r4,r5,r6,r7,r8,r9 = params["Umat"]
             r1,r2,r3,r4,r5,r6,r7,r8,r9 = rotMats[i_shot].ravel()
+            if HS.bg_only:
+                r1=r2=r3=r4=r5=r6=r7=r8=r9=np.nan
+                params["num_lat"] = 0
+                params["reso"] = np.nan
+                radius = np.nan
+                params["multi_lattice"] = 0
+                params["ang_sigma"] = np.nan
+                Na = Nb = Nc = np.nan
+                pdb = np.nan
+                params["mos_spread"]=np.nan
+                params["crystal_scale"]=np.nan
+            else:
+                pdb = PDB_MAP[params["pdb_name"]]
             param_arr = [params["reso"], 1/params["reso"],
                  radius/quad_ds_fact, quad_ds_fact/radius, # TODO update depending on args.centerCrop?
                  params["multi_lattice"],
@@ -463,7 +473,7 @@ def run(args, seeds, jid, njobs, gvec=None):
                  cent_x, cent_y,
                  cent_x_train, cent_y_train,
                  Na, Nb, Nc, 
-                 PDB_MAP[params["pdb_name"]],
+                 pdb,
                  params["mos_spread"],
                  params["crystal_scale"],
                  r1,r2,r3,r4,r5,r6,r7,r8,r9,
@@ -477,7 +487,7 @@ def run(args, seeds, jid, njobs, gvec=None):
 
             #if args.saveRaw:
             #    raw_dset[i_shot] = img[None]
-            if args.compress:
+            if not args.noCompress:
                 IMAX=np.sqrt(65535)
                 for i_ds_img, ds_img in enumerate(ds_imgs):
                     ds_img[ds_img > IMAX] = IMAX

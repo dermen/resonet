@@ -30,7 +30,9 @@ def main():
 
     def get_label_s(lab_val):
         if isinstance(lab_val, float) or isinstance(lab_val, np.float32):
-            if lab_val == int(lab_val):
+            if np.isnan(lab_val):
+                val_s = "nan"
+            elif lab_val == int(lab_val):
                 val_s = "%d" % lab_val
             else:
                 val_s = "%.4f" % lab_val
@@ -42,7 +44,10 @@ def main():
         label_string = ""
         for lab_val, name in zip(labs[i_img], labs.attrs['names']):
             if name == "pdb":
-                lab_val = os.path.basename(labs.attrs['pdbmap'][int(lab_val)])
+                if not np.isnan(lab_val):
+                    lab_val = os.path.basename(labs.attrs['pdbmap'][int(lab_val)])
+                else:
+                    lab_val = "nan"
             val_s = get_label_s(lab_val)
             label_string += "%s=%s;  " % (name, val_s)
 

@@ -105,7 +105,6 @@ def get_background(D,B, no_air=False, no_water=False, water_path_mm=None, air_pa
                                    Fbg_vs_stol=load_stol(paths_and_const.WATER_STOL), density_gcm3=1, roi=roi)  #
 
     background = air + water
-
     return background.as_numpy_array()
 
 
