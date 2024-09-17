@@ -113,12 +113,13 @@ def run(args, seeds, jid, njobs, gvec=None):
         xdim, ydim = DET[0].get_image_size()
         mask = np.ones((ydim, xdim), bool)
     else:
+        geom_dirname=os.path.join(os.path.dirname(__file__))
         if args.geom == "pilatus":
-            geom_f = os.path.join(dirname, "pilatus_1_00001.cbf")
+            geom_f = os.path.join(geom_dirname, "pilatus_1_00001.cbf")
         elif args.geom == "eiger":
-            geom_f = os.path.join(dirname, "eiger_1_00001.cbf")
+            geom_f = os.path.join(geom_dirname, "eiger_1_00001.cbf")
         else:
-            geom_f = os.path.join(dirname, "rayonix_1_00001.cbf")
+            geom_f = os.path.join(geom_dirname, "rayonix_1_00001.cbf")
 
         if not os.path.exists(geom_f):
             raise OSError(f"Geometry file {geom_f} does not exist, try running `resonet-getsimdata`.")
@@ -337,7 +338,6 @@ def run(args, seeds, jid, njobs, gvec=None):
                                       randomize_scale=args.randScale,
                                       low_bg_chance=args.lowBgChance,
                                       uniform_reso=args.uniReso,
-                                      verbose=args.verbose,
                                       cbf_name=cbf_name)
 
             if args.sanityTestOps:

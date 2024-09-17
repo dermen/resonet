@@ -180,13 +180,15 @@ class Simulator:
             S.D.show_params()
             print("Simulating spots!", flush=True)
         S.D.device_Id = dev
-        #S.D.store_ave_wavelength_image = paths_and_const.LAUE_MODE
         if self.fix_threefolds:
             num_blocks = len(S.D.get_mosaic_blocks())
             p1_cryst = deepcopy(C.dxtbx_crystal)
             ref_cryst = p1_cryst.change_basis(C.space_group_info.change_of_basis_op_to_primitive_setting().inverse())
             S.D.set_mosaic_blocks_sym(ref_cryst, reference_symbol=C.symbol, orig_mos_domains=num_blocks)
-        #S.D.add_diffBragg_spots_full()
+        if self.cuda and S.D.add_nanoBragg_spots_cuda is None:
+            print("Warning: Trying to use CUDA, but no simtbx CUDA install available.")
+            self.cuda = False
+
         if self.cuda:
             S.D.device_Id = dev
             S.D.add_nanoBragg_spots_cuda()
