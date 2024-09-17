@@ -165,7 +165,8 @@ def run(args, seeds, jid, njobs, gvec=None):
     # make an image whose pixel value corresonds to the radius from the center.
     # and this will be used to create on-the-fly beamstop masks of varying radius
     Y,X = np.indices((ydim, xdim))
-    print("Beginning simulations...")
+    if jid==0:
+        print("Beginning simulations...")
 
     # instantiate the simulator class
     HS = Simulator(DET, BEAM, cuda=not args.cpuMode,
