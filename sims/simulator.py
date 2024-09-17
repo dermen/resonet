@@ -19,6 +19,12 @@ from resonet.sims import make_sims, make_crystal, paths_and_const
 class Simulator:
 
     def __init__(self, DET, BEAM, cuda=True, verbose=False):
+        """
+        :DET: dxtbx detector model
+        :BEAM: dxtbx beam model
+        :cuda: use cuda backend for simulation of spots (and backgrond if the exafel api is avail)
+        :verbose:
+        """
         self.DET = DET
         self.BEAM = BEAM
         # air and water background:
@@ -54,18 +60,24 @@ class Simulator:
 
         :param rot_mat: specific orientation matrix for crystal
         :param multi_lattice_chance:  probabilitt to include more lattices
-        :param num_lat: number of lattices (in the event a multiple lattice shot is simulated)
+        :param max_lat: maximum number of lattices per shot (will be chosen randomly if > 1)
         :param mos_min_max: values for determing the size of the mosaic spread. Should be lower, upper bounds given in degrees 
-        :param pdb_name: path to the pdb folder (for debug purposes).
+        :param pdb_name: path to the pdb subfolder (for debug purposes).
         :param plastic_stol: path to the plastic `sin theta over lambda` file (debug purposes only)
         :param dev: device id (number from 0 to N-1 where N is number of nvidia GPUs available (run nvidia-smi to check)
         :param mos_dom_override: number of mosaic blocks to simulate. If not, will be determined via make_sims.choose_mos function.
+        :param vary_background_scale: whether to vary the scale of background from shot-to-shot
         :param randomize_dist: a function that returns a randomized detector distance
         :param randomize_wavelen: a function that returns a randomized beam energy
         :param randomize_center: randomize the beam center
         :param randomize_scale: randomize the crystal domain size
         :param low_bg_chance: probability to simulate a low backgroun shot
         :param uniform_reso: sample resolution uniformly to edge of camera
+        :roi: a region of interest to simulate (experimental)
+        :old_multi_spread: use the original routine for generating random angles between overlapping lattices
+           This was the method used for the multi lattice model reported on in: https://doi.org/10.1107/S2059798323010586 
+        :cbf_name: if provided, a raw CBF image will be written. It can be read with ADXV and dials.image_viewer
+            but not the python package fabio (for reasons unknown)
         :return: parameters and simulated image
         """
         if multi_lattice_chance > 0:
@@ -312,6 +324,14 @@ class Simulator:
 
     def sim_background(self, det, beam,
                 dev, stol_name, redo_air_water=False):
+        """
+        det: dxtbx detector
+        beam: dxtbx beam
+        dev: gpu device Id
+        stol_name: string path of a sin-theta-over-lambda file
+        redo_air_water: redo the air and water simulation (assuming det/beam changed)
+        returns np.ndarray of background scattering pixels
+        """
 
         total_flux = paths_and_const.FLUX
         spectrum = [(beam.get_wavelength(), 1)]

@@ -49,8 +49,8 @@ def args(use_joblib=False):
                                                                   "crop around the center")
     parser.add_argument("--sanityTestOps", action="store_true", help="If True, then ensure application of operators in the SGOPS file produce the same diffraction pattern")
     parser.add_argument("--bgOnly", action="store_true", help="Only simulate background scattering")
-    parser.add_argument("--randTilt", action="store_true", help="Randomize detector tilt angles")
-    parser.add_argument("--fix3fold", action="store_true", help="Ensure F_latt is 3-fold symmetric")
+    parser.add_argument("--randTilt", action="store_true", help="Randomize detector tilt angles (angles stored as pitch/yaw labels)")
+    parser.add_argument("--fix3fold", action="store_true", help="Ensure F_latt is 3-fold symmetric (experimental)")
     parser.add_argument("--xtalShape", default="gauss", type = str, help="shape factor of the relp, can be gauss, square, or gauss_star (default=gauss)")
     parser.add_argument("--shotsPerEx", default=1, type=int, help="number of shots per example, if more than 1, each shot will have same params but a random Umat")
     parser.add_argument("--randHits", action="store_true", help="generate diffraction+background images and background-only images with equal probability")
@@ -65,14 +65,13 @@ def args(use_joblib=False):
     return parser.parse_args()
 
 
-
 def run(args, seeds, jid, njobs, gvec=None):
     """
 
     :param args: instance of the args() method in this file
     :param jid: job ID
     :param njobs: number of jobs
-    :return:
+    :param gvec: randomly rotate the crystals about this axis only
     """
     import sys
     import os
@@ -165,6 +164,7 @@ def run(args, seeds, jid, njobs, gvec=None):
     # make an image whose pixel value corresonds to the radius from the center.
     # and this will be used to create on-the-fly beamstop masks of varying radius
     Y,X = np.indices((ydim, xdim))
+    print("Beginning simulations...")
 
     # instantiate the simulator class
     HS = Simulator(DET, BEAM, cuda=not args.cpuMode,
@@ -174,10 +174,7 @@ def run(args, seeds, jid, njobs, gvec=None):
     HS.bg_only = args.bgOnly
     HS.xtal_shape = args.xtalShape
     HS.shots_per_example = args.shotsPerEx
-    # sample-to-detector distance and pixel size
-    #detdist = abs(DET[0].get_distance())
     pixsize = DET[0].get_pixel_size()[0]
-    #wavelen = BEAM.get_wavelength()
 
     # GPU device Id for this rank
     dev = jid % args.ngpu
@@ -222,11 +219,6 @@ def run(args, seeds, jid, njobs, gvec=None):
 
         comp_args.pop("dtype")
         cbf_names = []
-
-        #if args.saveRaw:
-        #    raw_dset = out.create_dataset("raw_images",
-        #                                  shape=(Nshot,) + (1,ydim, xdim),
-        #                                  dtype=np.float32, **comp_args)
 
         param_names = ["reso", "one_over_reso",
                        "radius", "one_over_radius",
@@ -287,6 +279,7 @@ def run(args, seeds, jid, njobs, gvec=None):
             en1, en2 = args.randWaveRange
             assert en1 < en2
             random_wave = lambda: np.random.uniform(en1, en2)
+
         for i_shot in range(Nshot):
             t = time.time()
             cbf_name = None
@@ -344,6 +337,7 @@ def run(args, seeds, jid, njobs, gvec=None):
                                       randomize_scale=args.randScale,
                                       low_bg_chance=args.lowBgChance,
                                       uniform_reso=args.uniReso,
+                                      verbose=args.verbose,
                                       cbf_name=cbf_name)
 
             if args.sanityTestOps:
@@ -389,8 +383,6 @@ def run(args, seeds, jid, njobs, gvec=None):
 
             cent_x, cent_y = params["beam_center"]
 
-
-
             # add hot pixels
             npix = imgs[0].size
             if not args.noHot:
@@ -420,18 +412,21 @@ def run(args, seeds, jid, njobs, gvec=None):
 
             if paths_and_const.LAUE_MODE:
                 ave_pool = counter_utils.mx_gamma(stride=center_ds_fact, use_mean=True)
-                ds_wavelen = counter_utils.process_image(params['wavelen_data'],
-                                                         ave_pool, useSqrt=False)[0]
+                #ds_wavelen = counter_utils.process_image(params['wavelen_data'],
+                #                                         ave_pool, useSqrt=False)[0]
+
             # Rules for downsampling
             if args.centerCrop:
                 max_pool = counter_utils.mx_gamma(stride=center_ds_fact, dim=cropdim)
                 dx = xdim *.5 / center_ds_fact - cropdim*.5
                 dy = ydim *.5 / center_ds_fact - cropdim*.5
+                # convert cent_x, cent_y to downsampled version
                 cent_x_train = cent_x / center_ds_fact - dx
                 cent_y_train = cent_y / center_ds_fact - dy
             else:
                 max_pool = torch.nn.MaxPool2d(quad_ds_fact, quad_ds_fact)
                 q = np.random.choice(["A", "B", "C", "D"])
+                # convert cent_x, cent_y to downsampled version
                 # TODO update cent_x_train, cent_y_train
                 cent_x_train = (cent_x - xdim*.5)/quad_ds_fact #factor
                 cent_y_train = (cent_y - ydim*.5)/quad_ds_fact #factor
@@ -450,7 +445,6 @@ def run(args, seeds, jid, njobs, gvec=None):
 
                 ds_imgs.append(ds_img)
 
-            # convert cent_x, cent_y to downsampled version
             Na, Nb, Nc = params["Ncells_abc"]
             #r1,r2,r3,r4,r5,r6,r7,r8,r9 = params["Umat"]
             r1,r2,r3,r4,r5,r6,r7,r8,r9 = rotMats[i_shot].ravel()
@@ -491,8 +485,6 @@ def run(args, seeds, jid, njobs, gvec=None):
                              pixsize,
                              xdim, ydim]
 
-            #if args.saveRaw:
-            #    raw_dset[i_shot] = img[None]
             if not args.noCompress:
                 IMAX=np.sqrt(65535)
                 for i_ds_img, ds_img in enumerate(ds_imgs):
@@ -510,8 +502,10 @@ def run(args, seeds, jid, njobs, gvec=None):
 
             t = time.time()-t
             times.append(t)
-            if jid == 0:
-                print("Done with shot %d / %d (took %.4f sec)" % (i_shot+1, Nshot, t), flush=True)
-        if jid == 0:
-            print("Done! Takes %.4f sec on average per image" % np.mean(times))
+            print(f"RANK {jid+1}/{njobs}: Done with shot {i_shot+1}/{Nshot} out of {args.nshot} total (took {t:.4f} sec).", flush=True)
+
+        ave_t = np.mean(times)
+        print(f"RANK{jid+1}: Done! Takes {ave_t:.4f} sec on average per image. (Other processes might still be simulating)" % np.mean(times))
+
         out.attrs["cbf_names"] = cbf_names
+
