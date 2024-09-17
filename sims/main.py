@@ -6,9 +6,7 @@ def args(use_joblib=False):
     from argparse import ArgumentDefaultsHelpFormatter as arg_formatter
     parser = ArgumentParser(formatter_class=arg_formatter)
     parser.add_argument("outdir", help="path to output folder (will be created if necessary)", type=str)
-    parser.add_argument("--geom", type=str,
-                        help="path to cbf or mccd file for setting the simulation geometry/mask. If None, default geom from mosflm_geom.py will be used.",
-                        default=None)
+    parser.add_argument("--geom", type=str, choices=["eiger", "pilatus", "mar"], help="available detector formats (`eiger`, `pilatus`, or `mar`)", default=None)
     parser.add_argument("--seed", default=None,
                         help="random number seed. Default value of None will use int(time.time()) . Seed will be offset by MPI rank, so each rank always has a unique seed amongst all ranks.",
                         type=int)
@@ -113,11 +111,19 @@ def run(args, seeds, jid, njobs, gvec=None):
     # load the geometry from provided image file
     if args.geom is None:
         from resonet.sims.mosflm_geom import DET,BEAM
-        # get the detector dimensions (used to determine detector model below)
         xdim, ydim = DET[0].get_image_size()
         mask = np.ones((ydim, xdim), bool)
     else:
-        loader = dxtbx.load(args.geom)
+        if args.geom == "pilatus":
+            geom_f = os.path.join(dirname, "pilatus_1_00001.cbf")
+        elif args.geom == "eiger":
+            geom_f = os.path.join(dirname, "eiger_1_00001.cbf")
+        else:
+            geom_f = os.path.join(dirname, "rayonix_1_00001.cbf")
+
+        if not os.path.exists(geom_f):
+            raise OSError(f"Geometry file {geom_f} does not exist, try running `resonet-getsimdata`.")
+        loader = dxtbx.load(geom_f)
         DET = loader.get_detector()
         BEAM = loader.get_beam()
         if args.expt is not None:
