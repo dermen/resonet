@@ -78,7 +78,7 @@ class CurveFitMLP:
 
     @staticmethod
     def load_model(filename):
-        model_dict = torch.load(filename)
+        model_dict = torch.load(filename, weights_only=True)
         hidden_dims = model_dict["hidden_dims"]
         model = MLP(1, hidden_dims)
         model.load_state_dict(model_dict["mod"])
