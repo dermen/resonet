@@ -36,7 +36,11 @@ def main():
     data_folder = os.path.join(dirname, "for_tutorial")
     if not os.path.exists(data_folder):
         url='https://bl831.als.lbl.gov/~jamesh/resonet/for_tutorial.tar.gz'
-        f = dl(url)
+        try:
+            f = dl(url)
+        except Exception as err:
+            f = "for_tutorial.tar.gz"
+            os.system(f"wget {url}")
         print("Opening simulation data and saving to %s:" % dirname)
         tar = tarfile.open(f, "r:gz")
         with tqdm.tqdm(total=len(tar.getmembers()), unit="files", unit_scale=True, ascii=True) as progress_bar:
@@ -51,7 +55,14 @@ def main():
     print("Downloading the image formats:")
 
     for name,ext in (("pilatus","cbf"), ("eiger","cbf"), ("rayonix", "mccd")):
-        f=dl(f"https://smb.slac.stanford.edu/~resonet/{name}_1_00001.{ext}")
+        base_f = f"{name}_1_00001.{ext}"
+        url = f"https://smb.slac.stanford.edu/~resonet/{base_f}"
+        try:
+            f=dl(url)
+        except Exception as err:
+            f=base_f
+            os.system(f"wget {url}")
+
         if args.md5:
             md5 = hashlib.md5(open(f,'rb').read()).hexdigest()
             print(f"Checksum for {f}={md5}")
