@@ -4,8 +4,9 @@ from copy import deepcopy
 import numpy as np
 import torch
 from scipy.spatial.transform import Rotation
+from pytorch3d.transforms import matrix_to_quaternion
 
-dirname = os.path.join(os.path.dirname(__file__), "for_tutorial/diffraction_ai_sims_data")
+dirname = os.path.join(os.path.dirname(__file__), "../sims/for_tutorial/diffraction_ai_sims_data")
 pdb_path = os.path.join(dirname, "pdbs")
 
 try:
@@ -135,6 +136,49 @@ def loss(model_rots, gt_rots, reduce=True, sgnums=None):
     return loss
 
 
+
+class QuatLoss(torch.nn.Module):
+    def __init__(self, sgop_table, pdb_id_to_num, dev, *args, **kwargs):
+        """
+        :param sgop_table:
+        :param pdb_id_to_num:
+        """
+        super().__init__(*args, **kwargs)
+        self.Nop = max([len(v) for v in sgop_table.values()])
+        self.Nsym = len(sgop_table)
+        self.sgops = np.zeros((self.Nsym, self.Nop, 3, 3))
+        self.sgops[:, :] = np.eye(3)  # default is the Identity
+        for pdb_id in sgop_table:
+            rots = sgop_table[pdb_id]
+            idx = pdb_id_to_num[pdb_id]
+            self.sgops[idx, :len(rots)] = rots
+        self.sgops = torch.tensor(self.sgops.astype(np.float32), device=dev)
+
+    def forward(self, pred_quats, gt_rotmats, reduce=True, sgnums=None):
+        """
+        Below, `N` stands for batch size
+        :param model_rots: output of the ori_mode=True model (N x 9) tensor
+        :param gt_rots: ground truth orientations (N x 9) tensor
+        :param reduce: whether to return the summed loss, or one per example
+        :return:
+        """
+        # sgnums is list of ints e.g. 0, 1, 1, 2, 4, 24, ..
+        # model_rots is Nbatch x  3x  3
+        # rots is Nbatch x Nop x 3 x 3
+        #
+        symops = self.sgops[sgnums]
+        sym_gts = torch.matmul(symops, gt_rotmats.reshape((-1,3,3))[:,None])
+        sym_quats = matrix_to_quaternion(sym_gts)
+
+        dots = (sym_quats* pred_quats[:,None]).sum(dim=-1)
+        losses = 1-torch.abs(dots)**2
+        loss = losses.min(1).values
+
+        if reduce:
+            loss = loss.mean()
+        return loss
+        
+
 class Loss(torch.nn.Module):
     def __init__(self, sgop_table, pdb_id_to_num, dev, *args, **kwargs):
         """
@@ -200,6 +244,7 @@ class Loss(torch.nn.Module):
 def make_op_table(outfile=None):
     assert HAS_CCTBX
     assert os.path.exists(pdb_path)
+    # TODO: put outfile in for_tutorial folder
     pdb_id_file = os.path.join(pdb_path, "pdb_ids.txt")
     pdb_ids = [p.strip() for p in open(pdb_id_file, "r").readlines()]
 

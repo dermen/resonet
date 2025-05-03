@@ -362,6 +362,8 @@ def do_training(h5input, h5label, h5imgs, outdir,
 
     all_imgs = H5SimDataDset(h5input,
                                start=0, stop=ntrain + ntest, transform=transform, **common_args)
+
+
     test_extern_imgs = None
     if test_master:
         test_extern_imgs = H5SimDataDset(test_master, transform=transform,

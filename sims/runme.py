@@ -31,7 +31,7 @@ def main():
             gvec = np.random.normal(0,1,3)
     gvec = COMM.bcast(gvec)
     # TODO: remove this, its for debugging!
-    gvec = np.array([-0.11714061589265543, 0.48394403574869455, 0.8672232967186454])
+    #gvec = np.array([-0.11714061589265543, 0.48394403574869455, 0.8672232967186454])
     with DeviceWrapper(dev_id) as _:
         try:
             run(args_parsed, seeds, COMM.rank, COMM.size, gvec=gvec)

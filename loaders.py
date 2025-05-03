@@ -175,16 +175,16 @@ class H5SimDataDset(Dataset):
         if self.transform:
             img_dat = self.transform(img_dat)
         img_lab = torch.tensor(img_lab).to(self.dev)
+        ret_val = img_dat, img_lab
         if self.use_geom:
             geom_inputs = self.geom[i+self.start]
             geom_inputs = torch.tensor(geom_inputs).to(self.dev)
-            return img_dat, img_lab, geom_inputs
-        elif self.use_sgnums:
+            ret_val = ret_val + (geom_inputs,)
+        if self.use_sgnums:
             sgnums = self.sgnums[i+self.start]
             sgnums = torch.tensor(sgnums).to(self.dev)
-            return img_dat, img_lab, sgnums
-        else:
-            return img_dat, img_lab
+            ret_val = ret_val + (sgnums,)
+        return ret_val
 
     def nlab(self):
         return self.nlab

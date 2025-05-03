@@ -161,6 +161,9 @@ def run(args, seeds, jid, njobs, gvec=None):
         quad_ds_fact = 4
         center_ds_fact = 5
     cropdim = min(xdim, ydim) // center_ds_fact - 1
+    # assert multiple of 32
+    remain = cropdim % 32
+    cropdim = cropdim - remain
     factor = 2 if xdim == 2463 else 4
     # make an image whose pixel value corresonds to the radius from the center.
     # and this will be used to create on-the-fly beamstop masks of varying radius
@@ -370,8 +373,9 @@ def run(args, seeds, jid, njobs, gvec=None):
                         assert args.centerCrop  # we only care about this allclose test if center crop is true (orientation mode)
                         max_pool = counter_utils.mx_gamma(stride=center_ds_fact, dim=cropdim)
                         ds_spots = []
+                        assert len(spots)==len(spots2)==1
                         for sp_img in [spots, spots2]:
-                            ds_sp = counter_utils.process_image(sp_img, max_pool, useSqrt=True)[0]
+                            ds_sp = counter_utils.process_image(sp_img[0], max_pool, useSqrt=True)[0]
                             IMAX = np.sqrt(65535)
                             ds_sp[ds_sp > IMAX] = IMAX
                             ds_sp = ds_sp.numpy().astype(np.uint16)

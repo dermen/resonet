@@ -5,8 +5,103 @@ import torch.nn as nn
 import torch
 import torch.nn.functional as F
 from torchvision import models
+import numpy as np
+from torchvision.models import ResNet18_Weights
 
 from resonet.utils import orientation
+
+
+class OriQuatModel(torch.nn.Module):
+    def __init__(self,img_sh, hidden_dim_resnet=128, trans_lays=6, res_layers=50, num_heads=8,
+                 pretrained=True):
+        super().__init__()
+        assert hidden_dim_resnet % num_heads == 0
+        
+        # TODO: consider requiring even division by 32
+        ydim, xdim=img_sh
+        seq_len = ydim//32* xdim//32
+        
+        assert res_layers in {18,34,50}
+        # strip out avg pool from resnet
+        if res_layers==50:
+            model = models.resnet.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+            resnet_out = 2048
+
+        elif res_layers==34:
+            model = models.resnet.resnet34(weights=models.ResNet34_Weights.IMAGENET1K_V1)
+            resnet_out=512
+        elif res_layers==18:
+            model = models.resnet.resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
+            resnet_out=512
+        else:
+            raise NotImplementedError("only support 18,34,50 resnet layers")
+
+        # overwrite first conv layer to accept 1-channel; images
+        model.conv1 = torch.nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+
+        hidden_dim_geom=15
+        layers = list(model.children())
+        self.mod = torch.nn.Sequential(*layers[:-2])
+
+        # make linear layers
+        self.lin1 = torch.nn.Linear(resnet_out,hidden_dim_resnet)
+        self.lin2 = torch.nn.Linear(hidden_dim_resnet+hidden_dim_geom, 96)
+        self.lin3 = torch.nn.Linear(96,4) # quaternion output
+        
+        # encode the position of the resnet features
+        self.pos = torch.nn.Parameter(torch.randn(1,seq_len + 1, hidden_dim_resnet))
+
+        # make the transofmer
+        dim_ff= hidden_dim_resnet * 4 #
+        dropout_rate = 0.1
+        enc_lay = torch.nn.TransformerEncoderLayer(
+            d_model=hidden_dim_resnet,
+            nhead=num_heads,
+            dim_feedforward=dim_ff,
+            dropout=dropout_rate,
+            activation='relu', # TODO: test also 'gelu'
+            batch_first=True 
+        )
+        
+        self.transformer_encoder = torch.nn.TransformerEncoder(
+            encoder_layer=enc_lay,
+            num_layers=trans_lays
+        )
+        self.cls_token = torch.nn.Parameter(torch.randn(1, 1, hidden_dim_resnet))
+        self.geom_mlp = torch.nn.Sequential(
+            torch.nn.Linear(2,10),
+            torch.nn.ReLU(),
+            torch.nn.Linear(10,hidden_dim_geom))
+        dist_ave = 300
+        dist_sig = 115.47
+        wave_ave = 1.125
+        wave_sig = 0.101
+        geom_ave =torch.tensor(np.array([dist_ave, wave_ave]).astype(np.float32))
+        geom_sig =torch.tensor(np.array([dist_sig, wave_sig]).astype(np.float32))
+        self.register_buffer('geom_ave', geom_ave)
+        self.register_buffer('geom_sig', geom_sig)
+
+        
+    def forward(self,x, y):
+        # x is the raw diffraction image
+        # y is the pre-normalized geometry vector (distance, wavelength)
+        y_norm = (y-self.geom_ave) / self.geom_sig
+        
+        bs = x.shape[0]
+        x = self.mod(x).flatten(2)
+        x = self.lin1(x.transpose(2,1))
+        cls_tokens = self.cls_token.expand(bs, -1, -1)
+        x = torch.cat((cls_tokens, x), dim=1)
+        x = x+self.pos
+        x = self.transformer_encoder(x)
+        x = x[:,0]
+        geom_feat = self.geom_mlp(y_norm)
+        x = torch.cat((x, geom_feat), dim=1)
+        x = self.lin2(x)
+        x = torch.nn.functional.relu(x)
+        x = self.lin3(x)
+        x = torch.nn.functional.normalize(x, p=2, dim=-1)
+        return x
 
 
 class RESNetBase(nn.Module):

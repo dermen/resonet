@@ -41,7 +41,8 @@ CENTER_WINDOW_MM = 3  # if randomizing beam center, vary the center around a box
 DOMAINSIZE_MM = 5e-5
 FLAT_BACKGROUND = False
 VOL = (XTALSIZE_MM / DOMAINSIZE_MM)**3  # scales the diffraction
-FIX_RES = None # 0.5/.29989  # optionally fix the resolution for all simulations ...
+#FIX_RES = None # 0.5/.29989  # optionally fix the resolution for all simulations ...
+FIX_RES = 0.5/.29989  # optionally fix the resolution for all simulations ...
 RANDOM_TILT_PITCH_DEG = 3
 RANDOM_TILT_YAW_DEG = 3
 
@@ -87,7 +88,7 @@ RANDOM_PDBS = [d for d in glob.glob(os.path.join(dirname, "pdbs/*")) if len(os.p
 ##RANDOM_PDBS = [RANDOM_PDBS[0]]
 #
 PDB_MAP = {name: i for i, name in enumerate(RANDOM_PDBS)}
-SGOP_FILE = os.path.join(dirname, "pdb_ops3.npy")
+SGOP_FILE = os.path.join(dirname, "pdb_ops.npy")
 
 # mosaicity bounds (degrees)
 MOS_MIN = 0.2
