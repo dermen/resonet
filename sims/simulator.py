@@ -6,6 +6,7 @@ from simtbx.diffBragg.utils import ENERGY_CONV
 from dxtbx.model import Detector, Panel
 import numpy as np
 from scipy.spatial.transform import Rotation
+import numpy as np
 
 from scitbx.array_family import flex
 from simtbx.nanoBragg import nanoBragg, sim_data
@@ -44,6 +45,8 @@ class Simulator:
         self.shots_per_example = 1  # if provided simulate will return multiple images, each with a different crystal orientation and noise
         self.mask = None  # place holder for numpy-style pixel mask
         self.gpud = self.exascale_api = None
+        self.last_img_spots = None  # place holder for image array (see cache_last_img_components)
+        self.last_img_bg = None  # place holder for background array
         if self.cuda:
             try:
                 self.gpud = get_exascale("gpu_detector", "cuda")
@@ -55,7 +58,7 @@ class Simulator:
                  pdb_name=None, plastic_stol=None, dev=0, mos_dom_override=None, vary_background_scale=False,
                  randomize_dist=None, randomize_wavelen=None, randomize_center=False,
                  randomize_scale=False, low_bg_chance=0, uniform_reso=False, roi=None,
-                 old_multi_spread=True, cbf_name=None):
+                 old_multi_spread=True, cbf_name=None, cache_last_img_components=False):
         """
 
         :param rot_mat: specific orientation matrix for crystal
@@ -73,11 +76,12 @@ class Simulator:
         :param randomize_scale: randomize the crystal domain size
         :param low_bg_chance: probability to simulate a low backgroun shot
         :param uniform_reso: sample resolution uniformly to edge of camera
-        :roi: a region of interest to simulate (experimental)
-        :old_multi_spread: use the original routine for generating random angles between overlapping lattices
+        :param roi: a region of interest to simulate (experimental)
+        :param old_multi_spread: use the original routine for generating random angles between overlapping lattices
            This was the method used for the multi lattice model reported on in: https://doi.org/10.1107/S2059798323010586 
-        :cbf_name: if provided, a raw CBF image will be written. It can be read with ADXV and dials.image_viewer
+        :param cbf_name: if provided, a raw CBF image will be written. It can be read with ADXV and dials.image_viewer
             but not the python package fabio (for reasons unknown)
+        :param cache_last_img_components: whether to cache the last image background and diffraction arrays as class vars
         :return: parameters and simulated image
         """
         if multi_lattice_chance > 0:
@@ -287,6 +291,10 @@ class Simulator:
             else:
                 img = spots_scaled + bg*bg_scale
 
+            if cache_last_img_components:
+                self.last_img_spots = spots_scaled
+                self.last_img_bg = (bg*bg_scale)[0]
+
             S.D.raw_pixels = flex.double(img.ravel())
             S.D.add_noise()
             noise_img = S.D.raw_pixels.as_numpy_array().reshape(img_sh)
@@ -392,6 +400,13 @@ class Simulator:
         gpu_detector.each_image_free()  # deallocate GPU arrays
         #gpu_detector.free_random_states()
         return nominal_data
+
+
+def estimate_SNR_per_pixel(bragg, background, sigma_gain, sigma_readout):
+    total_clean = bragg + background
+    noise = np.sqrt(total_clean*(1+sigma_gain**2) + total_clean**2*sigma_gain**2 + sigma_readout**2)
+    bragg_snr = bragg / noise
+    return bragg_snr
 
 
 def reso2radius(reso, DET, BEAM):

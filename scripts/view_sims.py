@@ -27,6 +27,9 @@ def main():
     h = h5py.File(args.input, "r")
     imgs = h['images']
     labs = h['labels']
+    peaks = None
+    if "peak_segments" in h.keys():
+        peaks = h['peak_segments']
 
     def get_label_s(lab_val):
         if isinstance(lab_val, float) or isinstance(lab_val, np.float32):
@@ -64,6 +67,7 @@ def main():
     fig.set_size_inches(7,4.*7/10)
     fig.i_img = 0
     fig.n_imgs = n_imgs
+    fig.use_mask = False
     from matplotlib.gridspec import GridSpec
     gs = GridSpec(1, 3, width_ratios=[1,30,15], left=0.1, wspace=0.2,  right=0.9)
     axcmap = fig.add_subplot(gs[0])
@@ -73,7 +77,8 @@ def main():
     #axcmap = fig.add_axes([0.05, 0.25, 0.0225, 0.63])
     #axtext = fig.add_axes([0.5, 0.05, 0.5, 0.9])
 
-    ax.imshow(img, vmin=0, vmax=255, cmap="gray_r")
+    cm = plt.cm.gray_r.with_extremes(bad='r')
+    ax.imshow(img, vmin=0, vmax=255, cmap=cm)
 
     amp_slider = Slider(
         ax=axcmap,
@@ -100,6 +105,10 @@ def main():
             fig.i_img += 1
         elif event.key == "left":
             fig.i_img = fig.i_img - 1
+        elif event.key == 'up':
+            fig.use_mask = not fig.use_mask
+            print("Toggling mask", fig.use_mask)
+
         fig.i_img = max(fig.i_img, 0)
         fig.i_img = min(fig.i_img, fig.n_imgs - 1)
 
@@ -115,7 +124,10 @@ def main():
         label_s = print_label_info(fig.i_img)
         label_s = "\n".join(textwrap.wrap(label_s, width=36, break_long_words=False))
         axtext.texts[0].set_text("Labels:\n"+label_s)
-        img = imgs[fig.i_img]
+        img = imgs[fig.i_img].copy().astype(np.float32)
+        if peaks is not None and fig.use_mask:
+            in_peak = peaks[fig.i_img]
+            img[in_peak] = np.nan
         ax.images[0].set_data(img)
         ax.set_title("image %d/%d (Arrow Right / Left to scroll)" % (fig.i_img+1, fig.n_imgs), fontsize=10)
         if waitforbuttonpress():

@@ -1,5 +1,45 @@
 import numpy as np
 from simtbx.diffBragg.utils import image_data_from_expt
+from dxtbx.model import Panel, Detector
+
+def split_eiger_16M_to_panels(raw, detector=None):
+    """
+
+    :param raw: raw 2D eiger 16M image
+    :param detector: dxtbx detector model for monolithic eiger - will be converted to a 32 panel detector model if provided
+    :return: bunch of stuff
+    """
+    from scipy.ndimage import label, find_objects
+    regions, nregions = label(raw != -1)
+    region_slices = find_objects(regions)
+    assert nregions == 32
+    panels = []
+    new_detector = Detector()
+
+    for sY, sX in region_slices:
+        assert sY.stop - sY.start == 512
+        assert sX.stop - sX.start == 1028
+        raw_panel = raw[sY, sX]
+        panels.append(raw_panel)
+        if detector is not None:
+            pan_dict = detector[0].to_dict()
+            orig = np.array(pan_dict["origin"])
+            pixsize = pan_dict["pixel_size"][0]
+            fast = np.array(pan_dict["fast_axis"])
+            slow = np.array(pan_dict["slow_axis"])
+            new_orig = orig + fast*pixsize*np.array([sX.start,0,0]) + slow*pixsize*np.array([0,sY.start,0])
+            pan_ydim, pan_xdim = raw_panel.shape
+            new_image_size = pan_xdim, pan_ydim
+            pan_dict["origin"] = tuple(new_orig)
+            pan_dict["image_size"] = new_image_size
+            pan_dict["mask"] = []
+            new_panel = Panel.from_dict(pan_dict)
+            new_detector.add_panel(new_panel)
+
+    ret_val = regions, nregions, region_slices, panels
+    if detector is not None:
+        ret_val += (new_detector,)
+    return ret_val
 
 
 def project_jungfrau(expt, normalize=True, mask=None, return_center=False, img=None):

@@ -6,6 +6,30 @@ import numpy as np
 import h5py
 
 
+class CompressDset(Dataset):
+
+    def __init__(self, h5name):
+        self.h5name = h5name
+        self.h5 = None
+        self.images = self.labels = None
+
+    def _open(self):
+        if self.h5 is None:
+            self.h5 = h5py.File(self.h5name, "r")
+
+    def __len__(self):
+        self._open()
+        return self.h5['images'].shape[0]
+
+    def __getitem__(self, idx):
+        self._open()
+        img = torch.tensor(self.h5['images'][idx][None])
+        lab = torch.tensor(self.h5['peak_segments'][idx])
+        img = img.float()
+        lab = lab.float()
+        return img, lab
+
+
 class H5SimDataDset(Dataset):
 
     def __init__(self, h5name, dev=None, labels="labels", images="images",

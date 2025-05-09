@@ -157,7 +157,7 @@ class QuatLoss(torch.nn.Module):
     def forward(self, pred_quats, gt_rotmats, reduce=True, sgnums=None):
         """
         Below, `N` stands for batch size
-        :param model_rots: output of the ori_mode=True model (N x 9) tensor
+        :param pred_quats: output of the quaternion model (Nx4 tensor)
         :param gt_rots: ground truth orientations (N x 9) tensor
         :param reduce: whether to return the summed loss, or one per example
         :return:

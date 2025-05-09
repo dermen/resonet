@@ -60,7 +60,7 @@ def args(use_joblib=False):
 
     if hasattr(args, "h") or hasattr(args, "help"):
         parser.print_help()
-        sys.exit()
+        exit()
 
     return parser.parse_args()
 

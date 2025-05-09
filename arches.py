@@ -26,7 +26,6 @@ class OriQuatModel(torch.nn.Module):
         if res_layers==50:
             model = models.resnet.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
             resnet_out = 2048
-
         elif res_layers==34:
             model = models.resnet.resnet34(weights=models.ResNet34_Weights.IMAGENET1K_V1)
             resnet_out=512
@@ -86,7 +85,11 @@ class OriQuatModel(torch.nn.Module):
         # x is the raw diffraction image
         # y is the pre-normalized geometry vector (distance, wavelength)
         y_norm = (y-self.geom_ave) / self.geom_sig
-        
+
+        x = torch.fft.fftshift(torch.fft.fft2(x), dim=(-2, -1))
+        x = torch.abs(x)
+        x = torch.log1p(x)
+
         bs = x.shape[0]
         x = self.mod(x).flatten(2)
         x = self.lin1(x.transpose(2,1))
