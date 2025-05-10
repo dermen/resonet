@@ -27,6 +27,9 @@ def main():
     h = h5py.File(args.input, "r")
     imgs = h['images']
     labs = h['labels']
+    imgs_bg = None
+    if "background" in h:
+        imgs_bg = h['background']
     peaks = None
     if "peak_segments" in h.keys():
         peaks = h['peak_segments']
@@ -68,6 +71,7 @@ def main():
     fig.i_img = 0
     fig.n_imgs = n_imgs
     fig.use_mask = False
+    fig.show_background = False
     from matplotlib.gridspec import GridSpec
     gs = GridSpec(1, 3, width_ratios=[1,30,15], left=0.1, wspace=0.2,  right=0.9)
     axcmap = fig.add_subplot(gs[0])
@@ -84,7 +88,7 @@ def main():
         ax=axcmap,
         label="Colorscale",
         valmin=0,
-        valmax=255,
+        valmax=512,
         valinit=img.mean()+3.5*img.std(),
         orientation="vertical"
     )
@@ -107,7 +111,8 @@ def main():
             fig.i_img = fig.i_img - 1
         elif event.key == 'up':
             fig.use_mask = not fig.use_mask
-            print("Toggling mask", fig.use_mask)
+        elif event.key == "down":
+            fig.show_background = not fig.show_background
 
         fig.i_img = max(fig.i_img, 0)
         fig.i_img = min(fig.i_img, fig.n_imgs - 1)
@@ -124,7 +129,15 @@ def main():
         label_s = print_label_info(fig.i_img)
         label_s = "\n".join(textwrap.wrap(label_s, width=36, break_long_words=False))
         axtext.texts[0].set_text("Labels:\n"+label_s)
-        img = imgs[fig.i_img].copy().astype(np.float32)
+        if imgs_bg is not None and fig.show_background:
+            img = imgs_bg[fig.i_img].copy().astype(np.float32)
+        else:
+            img = imgs[fig.i_img].copy().astype(np.float32)
+
+        new_vmax = img.mean() + 3.5 * img.std()
+        #from IPython import embed;embed()
+        amp_slider.set_val(new_vmax)#val = new_vmax
+        #update_clim(new_vmax)
         if peaks is not None and fig.use_mask:
             in_peak = peaks[fig.i_img]
             img[in_peak] = np.nan

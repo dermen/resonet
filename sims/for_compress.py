@@ -82,8 +82,7 @@ def run(args, seeds, jid, njobs):
         regions, nregions, region_slices, _ = split_eiger_16M_to_panels(raw)
         sY, sX = region_slices[0]
         region_sh = sY.stop-sY.start, sX.stop-sX.start
-        assert region_sh == 512, 1028  # for eiger 16M
-
+        assert region_sh == (512, 1028)  # for eiger 16M
         # get the detector dimensions (used to determine detector model below)
         xdim, ydim = DET[0].get_image_size()
         # which pixel do not contain data
@@ -139,6 +138,12 @@ def run(args, seeds, jid, njobs):
                                   shape=dset_shape,
                                   chunks=chunks,
                                   dtype=np.uint16,
+                                  **comp_args)
+
+        dset_bg = out.create_dataset("background",
+                                  shape=dset_shape,
+                                  chunks=chunks,
+                                  dtype=np.float16,
                                   **comp_args)
 
         dset_segments = out.create_dataset("peak_segments",
@@ -258,6 +263,8 @@ def run(args, seeds, jid, njobs):
                 panel_img[panel_img > IMAX] = IMAX
                 panel_img = panel_img.astype(np.uint16)
                 dset[dset_idx] = panel_img
+                panel_img_bg = HS.last_img_bg[sY, sX]
+                dset_bg[dset_idx] = panel_img_bg
                 dset_segments[dset_idx] = panel_is_peak
 
             Na, Nb, Nc = params["Ncells_abc"]
