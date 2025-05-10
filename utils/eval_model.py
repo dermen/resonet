@@ -32,7 +32,7 @@ def load_model(state_name, arch="res50", ori_mode=False):
         kwargs["nout"] = 6
     model = ARCHES[arch](**kwargs)
     model.ori_mode = ori_mode
-    temp = torch.load(state_name, map_location=torch.device('cpu'))
+    temp = torch.load(state_name, map_location=torch.device('cpu'), weights_only=True)
     state = OrderedDict()
     for k,v in temp.items():
         if k.startswith("module."):

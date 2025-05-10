@@ -87,7 +87,7 @@ RANDOM_PDBS = [d for d in glob.glob(os.path.join(dirname, "pdbs/*")) if len(os.p
 ##RANDOM_PDBS = [RANDOM_PDBS[0]]
 #
 PDB_MAP = {name: i for i, name in enumerate(RANDOM_PDBS)}
-SGOP_FILE = os.path.join(dirname, "pdb_ops3.npy")
+SGOP_FILE = os.path.join(dirname, "pdb_ops.npy")
 
 # mosaicity bounds (degrees)
 MOS_MIN = 0.2

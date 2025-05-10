@@ -4,9 +4,43 @@ from abc import abstractmethod
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
-from torchvision import models
+from torchvision import transforms, models
 
 from resonet.utils import orientation
+
+
+class Transformer(nn.Module):
+
+    def __init__(self, dev=None, device_id=0, nout=1, dropout=False, ngeom=None, nchan=1,
+                     weights=None, kernel_size=None, num_fc=100):
+        super().__init__()
+        if dev is None:
+            self.dev = "cuda:%d" % device_id
+        else:
+            self.dev = "cpu"
+        #self.DROP = nn.Dropout(p=0.5)
+        #self.dev = dev
+        #self.fc1 = nn.Linear(1000, nout, device=self.dev)
+        #self.fc2 = nn.Linear(self.num_fc, nout, device=self.dev)
+        self.M = models.vit_b_16(image_size=832, num_classes=nout)
+        self.M.conv_proj= torch.nn.Conv2d(nchan, 768, kernel_size=(16, 16), stride=(16, 16))
+        self.M = self.M.to(dev)
+        self.rs = transforms.Resize((832,832))
+        self.ori_mode = False
+
+    def forward(self, x):
+        if x.shape[-1] != 832:
+            x = self.rs(x)
+        x = self.M(x)
+        #x = torch.flatten(x, 1)
+        #if self.dropout:
+        #    x = self.DROP(F.relu(self.fc1(x)))
+        #else:
+        #    x = F.relu(self.fc1(x))
+        #x = self.fc2(x)
+        if self.ori_mode:
+            x = orientation.gs_mapping(x)
+        return x
 
 
 class RESNetBase(nn.Module):

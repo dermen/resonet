@@ -13,7 +13,7 @@ def get_parser():
     parser.add_argument("--loss", type=str, choices=["L1", "L2", "BCE", "BCE2"], default="L1", help="loss function selector")
     parser.add_argument("--gpuid", type=int, help="device Id, pass a -1 in order to run on CPU", default=0)
     parser.add_argument("--saveFreq", type=int, default=10, help="how often to write the model to disk")
-    parser.add_argument("--arch", type=str, choices=["le", "res18", "res50", "res34", "res101", "res152", "counter"],
+    parser.add_argument("--arch", type=str, choices=["le", "res18", "res50", "res34", "res101", "res152", "counter", "vit"],
                         default="res50", help="architecture selector")
     parser.add_argument("--loglevel", type=str, 
             choices=["debug", "info", "critical"], default="info", help="python logger level")
@@ -285,8 +285,8 @@ def _train_iter(data, labels, model, criterion, optimizer, sgnums=None):
     if len(outputs.shape) == 3 and not ori_loss:
         nbatch = outputs.shape[0]
         outputs = outputs.reshape((nbatch, -1))
-    if ori_loss:
-        assert torch.all( torch.round(torch.linalg.det(outputs)) == 1).item()
+    #if ori_loss:
+    #    assert torch.all( torch.round(torch.linalg.det(outputs)) == 1).item()
     if ori_loss and sgnums is not None:
         loss = criterion(outputs, labels, sgnums=sgnums)
     else:

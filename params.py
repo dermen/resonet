@@ -8,8 +8,9 @@ res50 = lambda *args, **kwargs: arches.RESNetAny(*args, netnum=50, **kwargs)
 res101 = lambda *args, **kwargs: arches.RESNetAny(*args, netnum=101, **kwargs)
 res152 = lambda *args, **kwargs: arches.RESNetAny(*args, netnum=152, **kwargs)
 counter = lambda *args, **kwargs: arches.CounterRn(*args, **kwargs)
+vit = lambda *args, **kwargs: arches.Transformer(*args, **kwargs)
 
 ARCHES = {"le": arches.LeNet, "res18": res18, "res50": res50,
-          "res34": res34, "res101": res101, "res152": res152, "counter": counter}
+          "res34": res34, "res101": res101, "res152": res152, "counter": counter, "vit":vit }
 
 LOSSES = {"L1": nn.L1Loss, "L2": nn.MSELoss, "BCE": nn.BCELoss, "BCE2": nn.BCEWithLogitsLoss}

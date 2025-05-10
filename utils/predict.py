@@ -119,6 +119,19 @@ class ImagePredict:
         setattr(self, "%s_model" % model_name, model)
 
     @property
+    def mask(self):
+        return self._mask
+
+    @mask.setter
+    def mask(self, val):
+        if val is not None:
+            if not isinstance(val, np.ndarray):
+                assert TypeError("mask must be instance of np.ndarray")
+            if val.dtype!=bool:
+                raise TypeError("mask must be boolean array")
+        self._mask = val
+
+    @property
     def cache_raw_image(self):
         return self._cache_raw_image
 
@@ -311,25 +324,35 @@ class ImagePredict:
             assert raw_img.shape == self.ice_mask.shape
             self.mask = np.logical_and(self.mask, self.ice_mask)
 
-    def detect_resolution(self, use_min=True):
+    def detect_resolution(self, use_min=True, reduce=True):
         """
-        :return: an estimate of the crystal resolution in Angstroms
+        use_min: bool, resolution will be reduced over quadrants as either minimum or mean
+        reduce: bool, whether to reduce resolution over quadrants. If False, use_min is ignored
+        :return: an estimate of the crystal resolution in Angstroms, either ingle value( if reduce=True) or muiltiple values
+                one per quad
         """
         self._check_pixels()
         self._check_geom()
         self._check_model("reso")
 
         one_over_reso = self.reso_model(self.pixels, self.geom)
-
-        if use_min:
-            reso = torch.min(1/one_over_reso).item()
+        if not reduce:
+            reso = [d.item() for d in 1/one_over_reso]
+            if self.B_to_d_model is not None:
+                reso = [self.d_from_MLP(d) for d in reso]
+            elif use_modern_reso:
+                reso = [d_to_dnew(d) for d in reso]
         else:
-            reso = torch.mean(1/one_over_reso).item()
 
-        if self.B_to_d_model is not None:
-            reso = self.d_from_MLP(reso)
-        elif self.use_modern_reso:
-            reso = d_to_dnew(reso)
+            if use_min:
+                reso = torch.min(1/one_over_reso).item()
+            else:
+                reso = torch.mean(1/one_over_reso).item()
+
+            if self.B_to_d_model is not None:
+                reso = self.d_from_MLP(reso)
+            elif self.use_modern_reso:
+                reso = d_to_dnew(reso)
         return reso
 
     def d_from_MLP(self, d):
@@ -349,7 +372,7 @@ class ImagePredict:
         counts = counts.item()
         return counts
 
-    def detect_multilattice_scattering(self, binary=True):
+    def detect_multilattice_scattering(self, binary=True, reduce=True):
         """
         :param binary: whether to return a binary number, or a float between 0 and 1
         :return: 1 (multilattice scattering detector) or 0 (single lattice scattering detected), or else a floating
@@ -360,12 +383,18 @@ class ImagePredict:
         self.multi_model(self.pixels)
         raw_prediction = self.multi_model(self.pixels)
         raw_prediction = torch.sigmoid(raw_prediction)
-        raw_prediction = torch.mean(raw_prediction)
-        if binary:
-            is_multi = int(torch.round(raw_prediction).item())
+        if not reduce:
+            is_multi = [rp.item() for rp in raw_prediction]
+            if binary:
+                is_multi = [round(rp) for rp in is_multi]
             return is_multi
         else:
-            return raw_prediction.item()
+            raw_prediction = torch.mean(raw_prediction)
+            if binary:
+                is_multi = int(torch.round(raw_prediction).item())
+            else:
+                is_multi = raw_prediction.item()
+        return is_multi
 
     def detect_ice(self):
         self._check_pixels()

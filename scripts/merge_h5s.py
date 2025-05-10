@@ -24,12 +24,15 @@ def main():
 
     print("Combining %d files" % len(fnames))
 
-    dummie_h = h5py.File(fnames[0], "r")
-
-    #has_geom = "geom" in list(dummie_h.keys())
-    #ngeom_params = 0
-    #if has_geom:
-    #    ngeom_params = dummie_h["geom"].shape[1]
+    dummie_h = None
+    for f in fnames:
+        try:
+            dummie_h = h5py.File(f, "r")
+            break
+        except OSError:
+            pass
+    if dummie_h is None:
+        raise OSError("None of the hdf5 files were valid.")
 
     shapes = {}
     for key in ["images_mean", "images", "labels", "full_maximg", "geom"] + args.moreKeys:
@@ -38,7 +41,18 @@ def main():
         except KeyError:
             pass
 
-    imgs_per_fname = [h5py.File(f, 'r')['labels'].shape[0] for f in fnames]
+    imgs_per_fname = []
+    temp =[]
+    for f in fnames:
+        try:
+            n_img = h5py.File(f, 'r')['labels'].shape[0]
+            temp.append(f)
+            imgs_per_fname.append(n_img)
+        except OSError:
+            pass
+    fnames = temp
+
+    #imgs_per_fname = [h5py.File(f, 'r')['labels'].shape[0] for f in fnames]
     total_imgs = sum(imgs_per_fname)
 
     Layouts = {}
