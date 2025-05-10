@@ -8,10 +8,11 @@ import h5py
 
 class CompressDset(Dataset):
 
-    def __init__(self, h5name):
+    def __init__(self, h5name, maximgs=None):
         self.h5name = h5name
         self.h5 = None
         self.images = self.labels = None
+        self.maximgs = maximgs
 
     def _open(self):
         if self.h5 is None:
@@ -19,7 +20,11 @@ class CompressDset(Dataset):
 
     def __len__(self):
         self._open()
-        return self.h5['images'].shape[0]
+        if self.maximgs is not None:
+            assert self.maximgs <= self.h5["images"].shape[0]
+            return self.maximgs
+        else:
+            return self.h5['images'].shape[0]
 
     def __getitem__(self, idx):
         self._open()
