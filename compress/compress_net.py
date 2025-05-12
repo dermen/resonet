@@ -34,6 +34,7 @@ def train(args):
     logger = get_logger(filename=args.logfile)
     assert 0 < args.trainfrac < 1
     assert 0 < args.datafrac <= 1
+    logger.info(args)
 
     import h5py
     with h5py.File(args.h5name, "r") as f:
