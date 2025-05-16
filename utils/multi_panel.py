@@ -2,6 +2,7 @@ import numpy as np
 from simtbx.diffBragg.utils import image_data_from_expt
 from dxtbx.model import Panel, Detector
 
+
 def split_eiger_16M_to_panels(raw, detector=None):
     """
 
