@@ -5,10 +5,9 @@ import ast
 
 from dxtbx.format.FormatHDF5 import FormatHDF5
 from dials.array_family import flex
-from dxtbx.format.FormatStill import FormatStill
 
 
-class FormatDiffComp(FormatHDF5, FormatStill):
+class FormatDiffComp(FormatHDF5):
     """
     Class for reading HDF5 files for arbitrary geometries
     focused on performance

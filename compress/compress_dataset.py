@@ -8,6 +8,7 @@ ap.add_argument('--cutoff', default=0.9, type=float)
 ap.add_argument("--ndev", type=int, default="1")
 ap.add_argument("--format", choices=["coo","2d"], default="coo", type=str)
 ap.add_argument("--compression", choices=["lzf", "gzip"], type=str, default="gzip")
+ap.add_argument("--maximgs", type=int, default=None)
 args = ap.parse_args()
 assert 0 < args.cutoff < 1
 
@@ -36,6 +37,8 @@ print0("Loading expt")
 El = ExperimentList.from_file(args.expt)
 print0("Done.")
 iset = El[0].imageset
+if args.maximgs is not None:
+    iset = iset[:args.maximgs]
 scan = El[0].scan
 scan.set_image_range((1,len(iset)))
 gonio = El[0].goniometer
@@ -80,7 +83,7 @@ if COMM.rank==COMM.size-1:
             print("Received data for %s;  writing" % img_name)
             h5.add_image(pid=pid, fast=fast, slow=slow, val=val, key=img_name)
 
-        elif args.format=="2d" and isinstance(message, np.ndarray):
+        elif args.format=="2d" and isinstance(message, list) and len(message)==2:
             idx, panels = message
             print("Received data for writing, img idx=%d" % idx)
             h5.add_image(panels)
