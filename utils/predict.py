@@ -93,6 +93,7 @@ class ImagePredict:
         self.gain = 1  # adu per photon
         self.raw_image = None
         self.cache_raw_image = False
+        self.force_new_mask = False # flag for forcing recalculation of the default mask
 
     def _try_load_B_to_d(self, path):
         """path: saved MLP model for estimating reso from Bfactor"""
@@ -250,7 +251,7 @@ class ImagePredict:
         self.geom = self.geom.to(self._dev)
 
     def set_ice_mask(self, dxtbx_geom=None, simple_geom=None):
-        if self.ice_masker is None:
+        if self.ice_masker is None or self.force_new_mask:
             self.ice_masker = IceMasker(dxtbx_geom, simple_geom)
         if simple_geom is not None:
             kwargs = {"distance": simple_geom["distance_mm"], "wavelength": simple_geom["wavelength_Ang"],
@@ -303,7 +304,7 @@ class ImagePredict:
             self.raw_image = raw_img
 
     def _set_default_mask(self, raw_img):
-        if self.mask is None or raw_img.shape != self.mask.shape:
+        if self.mask is None or raw_img.shape != self.mask.shape or self.force_new_mask:
             mask = raw_img >= 0
             mask = ~binary_dilation(~mask, iterations=1)
             self.mask = mask
@@ -357,7 +358,7 @@ class ImagePredict:
         """
         self._check_pixels()
         self._check_model("multi")
-        self.multi_model(self.pixels)
+        #self.multi_model(self.pixels)
         raw_prediction = self.multi_model(self.pixels)
         raw_prediction = torch.sigmoid(raw_prediction)
         raw_prediction = torch.mean(raw_prediction)

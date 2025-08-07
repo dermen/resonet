@@ -68,3 +68,4 @@ class ImagePredictDxtbx(ImagePredict):
             dxtbx_geom = {"detector":det, "beam": beam}
             self.set_ice_mask(dxtbx_geom=dxtbx_geom)
         self._set_pixel_tensor(raw_image)
+
