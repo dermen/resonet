@@ -256,6 +256,7 @@ def run(args, seeds, jid, njobs):
             noise_img = imgs[0]
             snr_pix = estimate_SNR_per_pixel(HS.last_img_spots, HS.last_img_bg, sigma_gain=0.03, sigma_readout=0)
             is_peak = np.logical_and(snr_pix > 0.7 , HS.last_img_spots > 1e-4)
+
             for i_panel, (sY, sX) in enumerate(region_slices):
                 panel_img = noise_img[sY, sX]
                 panel_is_peak = is_peak[sY, sX]

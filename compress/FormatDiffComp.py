@@ -22,6 +22,10 @@ class FormatDiffComp(FormatHDF5):
             return False
         if img_handle.attrs["format"] != "DiffComp":
             return False
+        keys = [k for k in img_handle if k.startswith("image")]
+        for i in range(len(keys)):
+            if "image%d" % i not in img_handle:
+                return False
         return True
 
     def _start(self):
@@ -65,7 +69,8 @@ class FormatDiffComp(FormatHDF5):
         return len(self.images)
 
     def get_raw_data(self, index=0):
-        img_key = self.images[index]
+        img_key = "image%d" % index
+        #img_key = self.images[index]
         img_group = self._handle[img_key]
         fast = img_group["fast"][()]
         slow = img_group["slow"][()]

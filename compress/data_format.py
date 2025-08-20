@@ -7,7 +7,7 @@ import json
 
 class DiffCompWriter:
 
-  def __init__(self, filename, detector, beam, dtype=None, compression_args=None,
+  def __init__(self, filename, detector, beam, compression_args=None,
                goniometer=None, scan=None, file_ops=None):
     """
     Simple class for writing dxtbx compatible HDF5 files
@@ -15,7 +15,6 @@ class DiffCompWriter:
     :param filename:  input file path
     :param detector: dxtbx detector model
     :param beam: dxtbx beam model
-    :param dtype: datatype for storage
     :param compression_args: compression arguments for h5py, lzf is performant and simple
         if you only plan to read file in python
         Examples:
@@ -32,22 +31,29 @@ class DiffCompWriter:
     self.detector = detector
     self.goniometer = goniometer
     self.scan = scan
-    if dtype is None:
-      dtype = np.float32
-    self.dtype = dtype
     self._write_geom()
-    self.dtype = dtype
     self.file_handle.attrs["format"] = "DiffComp"
 
-  def add_image(self, pid, fast, slow, val, key):
+  def add_image(self, pid, fast, slow, val, scan_num):
     """
-    :param image: a single image as numpy image, same shape as used to instantiate the class
+
+    :param pid:  panel id
+    :param fast: fast scan coord
+    :param slow: slow scan coord
+    :param val: pixel value
+    :param scan_num: image number in rotation scan (starting from 0!)
+    :return:
     """
+    key = "image%d" % scan_num
     new_keys = [os.path.join(key, name) for name in ["panel", "fast", "slow", "vals"]]
     self.file_handle.create_dataset(new_keys[0], data=pid, dtype=np.uint16, **self.compresion_args)
     self.file_handle.create_dataset(new_keys[1], data=fast, dtype=np.uint16, **self.compresion_args)
     self.file_handle.create_dataset(new_keys[2], data=slow, dtype=np.uint16, **self.compresion_args)
-    self.file_handle.create_dataset(new_keys[3], data=val, dtype=self.dtype, **self.compresion_args)
+    if val.max() > np.finfo(np.float16).max:
+      dtype = np.float32
+    else:
+      dtype = np.float16
+    self.file_handle.create_dataset(new_keys[3], data=val, dtype=dtype, **self.compresion_args)
 
   def _write_geom(self):
     beam = self.beam

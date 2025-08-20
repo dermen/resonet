@@ -18,9 +18,13 @@ def split_eiger_16M_to_panels(raw, detector=None):
     new_detector = Detector()
 
     for sY, sX in region_slices:
-        assert sY.stop - sY.start == 512
-        assert sX.stop - sX.start == 1028
+        assert (sY.stop - sY.start) in {512,514}
+        assert (sX.stop - sX.start) in {1028,1030}
         raw_panel = raw[sY, sX]
+        pad_eiger = False
+        if raw_panel.shape==(514,1030):
+            pad_eiger=True
+            raw_panel = raw_panel[1:-1, 1:-1]
         panels.append(raw_panel)
         if detector is not None:
             pan_dict = detector[0].to_dict()
@@ -28,7 +32,11 @@ def split_eiger_16M_to_panels(raw, detector=None):
             pixsize = pan_dict["pixel_size"][0]
             fast = np.array(pan_dict["fast_axis"])
             slow = np.array(pan_dict["slow_axis"])
-            new_orig = orig + fast*pixsize*np.array([sX.start,0,0]) + slow*pixsize*np.array([0,sY.start,0])
+            if pad_eiger:
+                new_orig = orig + fast * pixsize * np.array([sX.start+1, 0, 0]) + slow * pixsize * np.array(
+                    [0, sY.start+1, 0])
+            else:
+                new_orig = orig + fast*pixsize*np.array([sX.start,0,0]) + slow*pixsize*np.array([0,sY.start,0])
             pan_ydim, pan_xdim = raw_panel.shape
             new_image_size = pan_xdim, pan_ydim
             pan_dict["origin"] = tuple(new_orig)

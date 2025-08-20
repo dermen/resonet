@@ -7,8 +7,11 @@ ap.add_argument("out", type=str)
 ap.add_argument('--cutoff', default=0.9, type=float)
 ap.add_argument("--ndev", type=int, default="1")
 ap.add_argument("--format", choices=["coo","2d"], default="coo", type=str)
-ap.add_argument("--compression", choices=["lzf", "gzip"], type=str, default="gzip")
+ap.add_argument("--compression", choices=["lzf", "gzip", "none"], type=str, default="gzip")
 ap.add_argument("--maximgs", type=int, default=None)
+ap.add_argument("--closings", type=int, default=1)
+ap.add_argument("--dilations", type=int, default=1)
+ap.add_argument("--dialsMode", action="store_true", help="if True, skip the AI model and just use DIALS to find spots")
 args = ap.parse_args()
 assert 0 < args.cutoff < 1
 
@@ -19,6 +22,8 @@ import numpy as np
 from resonet.utils.multi_panel import split_eiger_16M_to_panels
 import torch
 from resonet.compress import compress_models, data_format
+from resonet.compress import find_spots
+
 
 def print0(*args, **kwargs):
     if COMM.rank==0:
@@ -48,20 +53,19 @@ temp_img = iset.get_raw_data(0)[0].as_numpy_array()
 
 _, _, _, panels, multi_panel_det = split_eiger_16M_to_panels(temp_img, det)
 
-fops = {}
-
 if args.compression=="lzf":
     comps={"compression":"lzf","shuffle":True}
-else:
+elif args.compression=="gzip":
     comps={"compression":"gzip", "compression_opts":4, "shuffle":True}
+else:
+    comps = {}
 
 
 if COMM.rank==COMM.size-1:
     if args.format=="coo":
         h5 = data_format.DiffCompWriter(args.out, detector=multi_panel_det,
-                                        beam=beam, dtype=np.float16,
-                                        compression_args=comps,
-                                        scan=scan, goniometer=gonio, file_ops=fops)
+                                        beam=beam, compression_args=comps,
+                                        scan=scan, goniometer=gonio)
     else:
         from simtbx.nanoBragg import utils
         num_images = len(iset)
@@ -79,13 +83,13 @@ if COMM.rank==COMM.size-1:
             print("Received exit ; nexits total=%d" %  nexits)
 
         elif args.format=="coo" and isinstance(message, list) and len(message)==5:
-            img_name, pid, slow, fast, val = message
-            print("Received data for %s;  writing" % img_name)
-            h5.add_image(pid=pid, fast=fast, slow=slow, val=val, key=img_name)
+            img_idx, pid, slow, fast, val = message
+            print("Received data for image %s;  writing COO format" % img_idx)
+            h5.add_image(pid=pid, fast=fast, slow=slow, val=val, scan_num=img_idx)
 
         elif args.format=="2d" and isinstance(message, list) and len(message)==2:
-            idx, panels = message
-            print("Received data for writing, img idx=%d" % idx)
+            img_idx, panels = message
+            print("Received data for image %s;  writing 2d format" % img_idx)
             h5.add_image(panels)
         else:
             print("Unknown message type:", message)
@@ -95,21 +99,27 @@ if COMM.rank==COMM.size-1:
     h5.close_file()
 
 else:
-    #print0("Found %d images!" % len(iset))
+    from scipy.ndimage import binary_dilation, binary_closing
     sent_req = []
     for i_img in range(len(iset)):
         if i_img % (COMM.size-1) != COMM.rank:
             continue
-        #print0("Compressing block of images %d/%d" % (i_img+1, len(iset)))
-        img_name = "image%d" % i_img
         img = iset.get_raw_data(i_img)[0].as_numpy_array()
 
         _,_,_,panels = split_eiger_16M_to_panels(img)
         panel_peaks = []
+
         for i_pan, p in enumerate(panels):
-            p = torch.tensor(p[None,None]).float().to(dev)
-            out = model(p)
-            peaks = (out > args.cutoff)[0,0].detach().cpu().numpy()
+            if not args.dialsMode:
+                p = torch.tensor(p[None,None]).float().to(dev)
+                out = model(p)
+                peaks = (out > args.cutoff)[0,0].detach().cpu().numpy()
+            else:
+                peaks = find_spots.dials_find_spots(p)
+            if args.closings  > 0:
+                peaks = binary_closing(peaks, iterations=args.closings)
+            if args.dilations > 0:
+                peaks = binary_dilation(peaks, iterations=args.dilations)
             panel_peaks.append(peaks)
         panel_peaks = np.array(panel_peaks)
         panels = np.array(panels)
@@ -117,7 +127,7 @@ else:
         if args.format=="coo":
             pid, slow, fast = np.where(panel_peaks)
             val = panels[pid, slow, fast]
-            req = COMM.isend([img_name, pid, slow, fast, val], dest=COMM.size-1)
+            req = COMM.isend([i_img, pid, slow, fast, val], dest=COMM.size-1)
         else:
             panels[~panel_peaks] = 0
             req = COMM.isend([i_img, panels], dest=COMM.size-1)
