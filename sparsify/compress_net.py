@@ -2,7 +2,7 @@ from argparse import ArgumentParser
 from torch import optim
 from torch.utils.data import DataLoader
 from torch.utils.data import random_split
-from resonet.compress import compress_models
+from resonet.sparsify import sparsify_models
 from resonet.loaders import CompressDset # Assuming this is your custom loader
 from resonet.losses import TVLoss, diceLoss
 from resonet.net import get_logger
@@ -22,7 +22,7 @@ def args():
     ap.add_argument("--datafrac", default=1, type=float, help="Fraction of the dataset to use.")
     ap.add_argument("--trainfrac", default=.9, type=float, help="Fraction of the used dataset for training (rest is for testing).")
     ap.add_argument("--model", type=str, choices=["eff-b0", "fcn50", "eff-b1", "eff-b2", "eff-b3", "eff-b4", "eff-b5", "eff-b6", "eff-b7"] ,
-                    help="model strings (see resonet/compress/compress_models.py)")
+                    help="model strings (see resonet/sparsify/sparsify_models.py)")
     ap.add_argument("--patience", type=int, help="early stop count (this many chances to beat minimum loss)", default=7)
     ap.add_argument("--logfile", type=str, help="Log file", default=None)
     ap.add_argument("--FPRate", type=float, default=0.5, help="increase towards 1 to penalize false positives more, decrease towards 0 to penalize false negatives more, 0.5 means DICE loss")
@@ -55,7 +55,7 @@ def train(args):
 
     if args.model.startswith("eff"):
         effnet_num = int(args.model.split("-b")[1])
-        model = compress_models.efficientnet(b=effnet_num)
+        model = sparsify_models.efficientnet(b=effnet_num)
     else:
         model= compress_models.FCN50()
     model = model.float().to(dev)

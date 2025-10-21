@@ -77,6 +77,14 @@ class FormatDiffComp(FormatHDF5):
         pid = img_group["panel"][()]
         vals = img_group["vals"][()]
         self.panels *= 0
+
+        # check for vals that were masked, as these are usually stored as negatives and incompatible with the DiffComp dtypes uint16 or uint32
+        if "vals_mask" in img_group:
+            mask_loc = img_group["vals_mask"][()]
+            if mask_loc.size:
+                vals[mask_loc] = -1
+                # TODO: ensure the detector's untrusted range lower bound is 0 as for Pilatus and Eiger
+
         self.panels[pid, slow, fast] = vals
 
         if self.panels.dtype == np.float64:

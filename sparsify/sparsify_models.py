@@ -1,6 +1,7 @@
 from torchvision.models.segmentation import fcn_resnet50
 import torch
 from segmentation_models_pytorch import Unet
+import os
 
 
 class FCN50(torch.nn.Module):
@@ -27,7 +28,15 @@ def efficientnet(b=0):
     return model
 
 
-def load_model(model_file):
+def default_model_path():
+    dirname = os.path.dirname(__file__)
+    model_path = os.path.join(dirname, "../../downloaded_models/1k_randoms.compress_3_withName.out")
+    return model_path
+
+
+def load_model(model_file=None):
+    if model_file is None:
+        model_file = default_model_path()
     info=torch.load(model_file, weights_only=True)
     model_name = info["model_name"]
     if model_name.startswith("eff"):

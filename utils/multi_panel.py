@@ -13,13 +13,13 @@ def split_eiger_16M_to_panels(raw, detector=None):
     from scipy.ndimage import label, find_objects
     regions, nregions = label(raw != -1)
     region_slices = find_objects(regions)
-    assert nregions == 32
+    assert nregions in {32,60}
     panels = []
     new_detector = Detector()
 
     for sY, sX in region_slices:
-        assert (sY.stop - sY.start) in {512,514}
-        assert (sX.stop - sX.start) in {1028,1030}
+        assert (sY.stop - sY.start) in {512,514, 195}
+        assert (sX.stop - sX.start) in {1028,1030, 487}
         raw_panel = raw[sY, sX]
         pad_eiger = False
         if raw_panel.shape==(514,1030):

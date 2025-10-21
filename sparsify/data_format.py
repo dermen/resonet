@@ -49,10 +49,17 @@ class DiffCompWriter:
     self.file_handle.create_dataset(new_keys[0], data=pid, dtype=np.uint16, **self.compresion_args)
     self.file_handle.create_dataset(new_keys[1], data=fast, dtype=np.uint16, **self.compresion_args)
     self.file_handle.create_dataset(new_keys[2], data=slow, dtype=np.uint16, **self.compresion_args)
-    if val.max() > np.finfo(np.float16).max:
-      dtype = np.float32
+
+    # save the selected pixels values
+    if val.max() > np.iinfo(np.uint16).max:
+      dtype = np.uint32
     else:
-      dtype = np.float16
+      dtype = np.uint16
+    # track where are val < 0, as these are bad pixels in CBFs
+    mask_loc = np.where(val < 0)[0]
+    # set to 0 to avoid overflow, but then use mask to reset as -1 when reading (see FormatDiffComp)
+    val[mask_loc] = 0
+    self.file_handle.create_dataset(f"{key}/vals_mask", data=mask_loc, dtype=np.uint16)
     self.file_handle.create_dataset(new_keys[3], data=val, dtype=dtype, **self.compresion_args)
 
   def _write_geom(self):
