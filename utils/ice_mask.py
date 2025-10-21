@@ -109,7 +109,7 @@ class IceMasker:
 
             shot_panel = Panel.from_dict(self.panel_dict)
             shot_det = Detector()
-            shot_det.add_pannel(shot_panel)
+            shot_det.add_panel(shot_panel)
             shot_beam = Beam.from_dict(self.beam_dict)
             self.Q = qmags.qmags(shot_det, shot_beam)
             self._set_is_ice_pixel()
