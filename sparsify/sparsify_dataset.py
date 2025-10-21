@@ -18,19 +18,27 @@ args = ap.parse_args()
 
 assert 0 < args.cutoff < 1
 
-from mpi4py import MPI
-COMM = MPI.COMM_WORLD
 import os
 import numpy as np
 import glob
-from resonet.utils.multi_panel import split_eiger_16M_to_panels
-from dxtbx.model.experiment_list import ExperimentListFactory
-import torch
-from simtbx.nanoBragg import utils
-from resonet.sparsify import sparsify_models, data_format
 import re
-from resonet.sparsify import find_spots
 from scipy.ndimage import binary_dilation, binary_erosion, binary_closing
+import torch
+from dxtbx.model.experiment_list import ExperimentListFactory
+from mpi4py import MPI
+COMM = MPI.COMM_WORLD
+has_simtbx = False
+try:
+    from simtbx.nanoBragg.utils import H5AttributeGeomWriter
+    has_simtbx = True
+except (ImportError, ModuleNotFoundError):
+    assert not args.format=="2d"
+
+
+from resonet.utils.multi_panel import split_eiger_16M_to_panels
+from resonet.sparsify import sparsify_models, data_format
+from resonet.sparsify import find_spots
+
 
 def vprint(*print_args, **print_kwargs):
     if args.verbose:
@@ -66,7 +74,7 @@ class Writer:
             panel_xdim, panel_ydim = multi_panel_det[0].get_image_size()
             img_shape = len(multi_panel_det), panel_ydim, panel_xdim
             # TODO: double check DTYPE
-            self.h5 = utils.H5AttributeGeomWriter(outname, img_shape, num_images,
+            self.h5 = H5AttributeGeomWriter(outname, img_shape, num_images,
                                              multi_panel_det, beam, dtype=args.dtype,
                                              compression_args=comps,
                                              goniometer=gonio, scan=scan)
