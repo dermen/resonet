@@ -30,7 +30,7 @@ def efficientnet(b=0):
 
 def default_model_path():
     dirname = os.path.dirname(__file__)
-    model_path = os.path.join(dirname, "../../downloaded_models/1k_randoms.compress_3_withName.out")
+    model_path = os.path.join(dirname, "../downloaded_models/1k_randoms.compress_3_withName.out")
     return model_path
 
 

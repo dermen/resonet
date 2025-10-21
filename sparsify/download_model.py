@@ -37,7 +37,9 @@ def main():
         print(f"Checksum for {f}={md5}")
         assert md5 == checksum
         dirname = os.path.abspath(os.path.join(os.path.dirname(__file__)))
-        name = os.path.join(dirname, "../../downloaded_models/", os.path.basename(f))
+        download_dir = os.path.join(dirname, "../downloaded_models")
+        os.makedirs(download_dir, exist_ok=True)
+        name = os.path.join( download_dir, os.path.basename(f))
         os.rename(f, name)
         print(f"Model saved to {name}.")
 
