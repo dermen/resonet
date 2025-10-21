@@ -1,5 +1,4 @@
 import numpy as np
-from simtbx.diffBragg.utils import image_data_from_expt
 from dxtbx.model import Panel, Detector
 
 
@@ -59,6 +58,7 @@ def project_jungfrau(expt, normalize=True, mask=None, return_center=False, img=N
     :param mask: optional mask
     :return: returns 2D projection of image data from expt
     """
+    from simtbx.diffBragg.utils import image_data_from_expt
     P, F, S = make_psf(expt.detector)
     all_coords = []
     if img is None:
