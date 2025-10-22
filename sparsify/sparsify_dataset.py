@@ -186,9 +186,9 @@ def sparsify_expt(expt, args, outname):
 
 
 def exptlist_from_imgname(imgname, outexpt):
-    # TODO assert image ends with _00001.cbf or similar
-    patt = "_[0-9]{5}.cbf"
-    assert re.search(patt, imgname) is not None, "image name must end in %05d.cbf pattern"
+    # TODO should we do something more general here  than supporting 0001.cbf 000001.cbf 000001.cbf?
+    patt = "_[0-9]{4-6}.cbf"
+    assert re.search(patt, imgname) is not None, "image name must end in %04d.cbf %05d.cbf or %06d.cbf pattern"
     imgname_glob = re.split(patt, imgname)[0] + "*.cbf"
     all_imgnames = glob.glob(imgname_glob)
     print("Createing exptlist from %d files"  % (len(all_imgnames)))
