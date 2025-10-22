@@ -165,7 +165,7 @@ def sparsify_expt(expt, args, outname):
         for i_img in range(len(iset)):
             if i_img % (COMM.size - 1) != COMM.rank:
                 continue
-            vprint(f"Worker {COMM.rank} processing image {i_img+1}/{len(iset)}")
+            vprint(f"Worker {COMM.rank} processing image {i_img+1}/{len(iset)}", flush=True)
             img = iset.get_raw_data(i_img)[0].as_numpy_array()
             panels, panel_peaks = sparsify_image(img, model, dev, args)
             if args.format == "coo":
@@ -176,7 +176,7 @@ def sparsify_expt(expt, args, outname):
                 panels[~panel_peaks] = 0
                 req = COMM.isend([i_img, panels], dest=COMM.size - 1)
             sent_req.append(req)
-        vprint("Worker %d exiting" % COMM.rank)
+        vprint("Worker %d exiting" % COMM.rank, flush=True)
         req = COMM.isend("EXIT", dest=COMM.size - 1)
         sent_req.append(req)
         for req in sent_req:
