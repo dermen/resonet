@@ -26,6 +26,7 @@ from scipy.ndimage import binary_dilation, binary_erosion, binary_closing
 import torch
 from dxtbx.model.experiment_list import ExperimentListFactory
 from mpi4py import MPI
+import time
 COMM = MPI.COMM_WORLD
 has_simtbx = False
 try:
@@ -73,6 +74,7 @@ class Writer:
             num_images = len(iset)
             panel_xdim, panel_ydim = multi_panel_det[0].get_image_size()
             img_shape = len(multi_panel_det), panel_ydim, panel_xdim
+            print("Image shape:", img_shape)
             # TODO: double check DTYPE
             self.h5 = H5AttributeGeomWriter(outname, img_shape, num_images,
                                              multi_panel_det, beam, dtype=args.dtype,
@@ -89,6 +91,7 @@ class Writer:
         """sparsify workers will send messages either containing sparsified data, or exit messages that
         indicate they have completed all of their assigned work"""
         if isinstance(message, str):
+            # Now an exit message is the only string message that is sent...
             self.nexits += 1
             vprint("Writer received exit ; nexits total=%d" % self.nexits)
 
@@ -117,28 +120,36 @@ def sparsify_image(img, model, dev, args):
     _, _, _, panels = split_eiger_16M_to_panels(img)
     panel_peaks = []
 
+    tpost = 0
+    tpre = 0
+    tout = 0
     for i_pan, p in enumerate(panels):
         if not args.dialsMode:
+            t = time.time()
             p = torch.tensor(p[None, None]).float().to(dev)
+            tpre  += time.time()-t
+            t = time.time()
             out = model(p)
+            tout += time.time()-t
             peaks = (out > args.cutoff)[0, 0].detach().cpu().numpy()
         else:
             peaks = find_spots.dials_find_spots(p, sigma_background=2, sigma_strong=1,
                                                 algorithm="dispersion_extended")
+        t = time.time()
         if args.closings > 0:
             peaks = binary_closing(peaks, iterations=args.closings)
         if args.dilations > 0:
             peaks = binary_dilation(peaks, iterations=args.dilations)
 
-        # TODO make this tunable:
         # the idea here is to get rid of small peaks with erosion followed by dilation of same amount
         if args.openings > 0:
             peaks = binary_dilation(binary_erosion(peaks, iterations=args.openings), iterations=args.openings)
 
         panel_peaks.append(peaks)
+        tpost += time.time()-t
     panel_peaks = np.array(panel_peaks)
     panels = np.array(panels)
-    return panels, panel_peaks
+    return panels, panel_peaks, {"tpost": tpost, "tpre": tpre, "tout": tout}
 
 
 def sparsify_expt(expt, args, outname):
@@ -165,9 +176,10 @@ def sparsify_expt(expt, args, outname):
         for i_img in range(len(iset)):
             if i_img % (COMM.size - 1) != COMM.rank:
                 continue
-            vprint(f"Worker {COMM.rank} processing image {i_img+1}/{len(iset)}", flush=True)
             img = iset.get_raw_data(i_img)[0].as_numpy_array()
-            panels, panel_peaks = sparsify_image(img, model, dev, args)
+            panels, panel_peaks, times = sparsify_image(img, model, dev, args)
+            t1,t2,t3 = times["tpre"], times["tout"], times["tpost"]
+            vprint(f"Worker {COMM.rank} processed image {i_img+1}/{len(iset)}, Pre={t1:.6f}, Out={t2:.6f}, Post={t3:.6f}", flush=True)
             if args.format == "coo":
                 pid, slow, fast = np.where(panel_peaks)
                 val = panels[pid, slow, fast]
@@ -191,17 +203,39 @@ def exptlist_from_imgname(imgname, outexpt):
     assert re.search(patt, imgname) is not None, "image name must end in %04d.cbf %05d.cbf or %06d.cbf pattern"
     imgname_glob = re.split(patt, imgname)[0] + "*.cbf"
     all_imgnames = glob.glob(imgname_glob)
-    print("Createing exptlist from %d files"  % (len(all_imgnames)))
+    print("Creating exptlist from %d files"  % (len(all_imgnames)))
     El = ExperimentListFactory.from_filenames(filenames=all_imgnames)
     El.as_file(outexpt)
     print(f"Wrote experiment list to disk {outexpt}")
+    return all_imgnames
+
+def files_du(img_names):
+    total_bytes = 0
+    if COMM.rank==0:
+        print("Computing total disk usage")
+    for i_img, name in enumerate(img_names):
+        if i_img % COMM.size != COMM.rank:
+            continue
+        total_bytes += os.path.getsize(name)
+    total_bytes = COMM.reduce(total_bytes)
+    total_Gbytes = COMM.bcast(total_bytes)/(1024**3)
+    return total_Gbytes
 
 
 outexpt =os.path.join(args.outdir, "imported_for_sparse.expt")
+all_imgnames = None
 if COMM.rank==0:
     os.makedirs(args.outdir, exist_ok=True)
-    exptlist_from_imgname(args.image, outexpt)
-COMM.barrier()
+    all_imgnames = exptlist_from_imgname(args.image, outexpt)
+all_imgnames = COMM.bcast(all_imgnames)
+
+total_Gbytes =files_du(all_imgnames)
+if COMM.rank==0:
+    print(f"Total DU of CBFS: {total_Gbytes:.5f} GB")
+
+# calc the total file size here
+
+
 from dxtbx.model import ExperimentList
 Elst = ExperimentList.from_file(outexpt)
 
@@ -210,3 +244,10 @@ for i_expt, expt in enumerate(Elst):
         print("Loading expt %d / %d (iset=%d images)" % (i_expt+1, len(Elst), len(expt.imageset)), flush=True)
     outname = os.path.join(args.outdir, "sparse_%d_master.h5" % (i_expt+1))
     sparsify_expt(expt, args, outname)
+    if COMM.rank==0:
+        sparse_Gbytes = os.path.getsize(outname)/(1024**3)
+        print(f"Expt {i_expt+1}: CBF size: {total_Gbytes: .4f} , Sparse size: {sparse_Gbytes:.4f} GB")
+
+        with open(outname.replace(".h5", "_du.txt"), "w") as o:
+            o.write(f"Original CBF size: {total_Gbytes} GB\n")
+            o.write(f"Sparse file size: {sparse_Gbytes} GB")
