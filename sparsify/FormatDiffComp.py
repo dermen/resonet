@@ -59,6 +59,7 @@ class FormatDiffComp(FormatHDF5):
         #dtype = self.images[0]["vals"].dtype
         self.panels = np.zeros(self.img_shape, dtype=np.float64)#.astype(dtype)
 
+        self._cctbx_scan = self._cctbx_gonio = None
         if is_rot:
             gonio_dict = ast.literal_eval(gonio_str)
             scan_dict = ast.literal_eval(scan_str)
@@ -99,10 +100,10 @@ class FormatDiffComp(FormatHDF5):
     def get_detector(self, index=None):
         return self._cctbx_detector
 
-    def get_goniometer(self):
+    def get_goniometer(self, index=None):
         return self._cctbx_gonio
 
-    def get_scan(self):
+    def get_scan(self, index=None):
         return self._cctbx_scan
 
     def get_beam(self, index=0):

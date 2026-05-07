@@ -14,6 +14,7 @@ ap.add_argument("--dilations", type=int, default=1)
 ap.add_argument("--dialsMode", action="store_true", help="if True, skip the AI model and just use DIALS to find spots")
 ap.add_argument("--dtype", default="float16",type=str, choices=["float16", "float32", "float64"] )
 ap.add_argument("--verbose", action="store_true")
+ap.add_argument("--forceStill", action="store_true")
 args = ap.parse_args()
 
 assert 0 < args.cutoff < 1
@@ -56,9 +57,12 @@ class Writer:
             comps = {}
 
         iset = expt.imageset
+
         scan = expt.scan
         scan.set_image_range((1, len(iset)))
         gonio = expt.goniometer
+        if args.forceStill:
+            scan = gonio = None
         det = expt.detector
         beam = expt.beam
         dummie_img = iset.get_raw_data(0)[0].as_numpy_array()

@@ -51,10 +51,10 @@ class DiffCompWriter:
     self.file_handle.create_dataset(new_keys[2], data=slow, dtype=np.uint16, **self.compresion_args)
 
     # save the selected pixels values
-    if val.max() > np.iinfo(np.uint16).max:
-      dtype = np.uint32
+    if val.max() > np.iinfo(np.int16).max:
+      dtype = np.int32
     else:
-      dtype = np.uint16
+      dtype = np.int16
     # track where are val < 0, as these are bad pixels in CBFs
     mask_loc = np.where(val < 0)[0]
     # set to 0 to avoid overflow, but then use mask to reset as -1 when reading (see FormatDiffComp)
