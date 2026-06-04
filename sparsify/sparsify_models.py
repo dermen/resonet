@@ -3,6 +3,27 @@ import torch
 from segmentation_models_pytorch import Unet
 import os
 
+import numpy as np
+import numpy._core.multiarray
+
+torch.serialization.add_safe_globals([
+    numpy._core.multiarray.scalar,
+    np.str_,
+    np.dtype,
+    np.dtypes.Float64DType,
+    np.dtypes.Float32DType,
+    np.dtypes.Float16DType,
+    np.dtypes.Int64DType,
+    np.dtypes.Int32DType,
+    np.dtypes.Int16DType,
+    np.dtypes.Int8DType,
+    np.dtypes.UInt64DType,
+    np.dtypes.UInt32DType,
+    np.dtypes.UInt16DType,
+    np.dtypes.UInt8DType,
+    np.dtypes.BoolDType,
+    np.dtypes.StrDType,
+])
 
 class FCN50(torch.nn.Module):
     def __init__(self):
