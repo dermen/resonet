@@ -269,9 +269,9 @@ class Simulator:
             assert os.path.exists(plastic_stol)
 
         if uniform_reso:
-            reso, Bfac_img = make_sims.get_Bfac_img(STOL,high_reso)
+            reso, Bfac_img, deltaB = make_sims.get_Bfac_img(STOL,high_reso)
         else:
-            reso, Bfac_img = make_sims.get_Bfac_img(STOL)
+            reso, Bfac_img, deltaB = make_sims.get_Bfac_img(STOL)
 
         if self.gpud is None:
             plastic = make_sims.random_bg(shot_det, shot_beam, plastic_stol, roi=roi)
@@ -326,6 +326,7 @@ class Simulator:
                       "Umat": S.crystal.dxtbx_crystal.get_U(),
                       "pitch_deg": pitch_angle*180/np.pi,
                       "yaw_deg": yaw_angle*180/np.pi,
+                      "deltaB": deltaB,
                       "wavelen_data": None}
 
         if cbf_name:

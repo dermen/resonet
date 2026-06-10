@@ -112,13 +112,13 @@ def get_Bfac_img(STOL, hres=None):
     """
 
     :param STOL: sin-theta-over-lambda of every pixel on detector
-    :return: delta-Bfactor at every pixel (for aadjusting the spot resolution)
+    :return: 3-tuple of (resolution, delta-Bfactor image, delta-B value)
     """
     B, stol, factor = get_deltaB_factor(hres)
     I = interp1d(stol, factor, bounds_error=False, fill_value=0)
     Bfac_img = I(STOL.ravel()).reshape(STOL.shape)
     reso = np.sqrt(.25*(B + 10 - 12))
-    return reso, Bfac_img
+    return reso, Bfac_img, B
 
 
 def get_deltaB_factor(hres=None):

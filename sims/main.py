@@ -236,7 +236,7 @@ def run(args, seeds, jid, njobs, gvec=None):
                        "beam_center_fast", "beam_center_slow",
                        "cent_fast_train", "cent_slow_train",
                        "Na", "Nb", "Nc", "pdb", "mos_spread","xtal_scale"] \
-                      + ["r%d" % x for x in range(1, 10)] + ['pitch_deg', 'yaw_deg', "bg_only"]
+                      + ["r%d" % x for x in range(1, 10)] + ['pitch_deg', 'yaw_deg', "bg_only", "deltaB"]
         geom_names = ["detdist", "wavelen", "pixsize", "xdim", "ydim"]
         lab_dset = out.create_dataset("labels", dtype=np.float32, shape=(Nshot, len(param_names)) , **comp_args)
         geom_dset = out.create_dataset("geom", dtype=np.float32, shape=(Nshot, len(geom_names)), **comp_args)
@@ -486,7 +486,8 @@ def run(args, seeds, jid, njobs, gvec=None):
                  params["crystal_scale"],
                  r1,r2,r3,r4,r5,r6,r7,r8,r9,
                  params['pitch_deg'], params['yaw_deg'],
-                 1 if HS.bg_only else 0]
+                 1 if HS.bg_only else 0,
+                 params['deltaB']]
 
             geom_array = [params["detector_distance"],
                              params["wavelength"],
