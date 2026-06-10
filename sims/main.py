@@ -6,7 +6,7 @@ def args(use_joblib=False):
     from argparse import ArgumentDefaultsHelpFormatter as arg_formatter
     parser = ArgumentParser(formatter_class=arg_formatter)
     parser.add_argument("outdir", help="path to output folder (will be created if necessary)", type=str)
-    parser.add_argument("--geom", type=str, choices=["eiger", "pilatus", "mar"], help="available detector formats (`eiger`, `pilatus`, or `mar`)", default=None)
+    parser.add_argument("--geom", type=str, help="path to cbf/mccd file, or shortcut: `eiger`, `pilatus`, `mar`", default=None)
     parser.add_argument("--seed", default=None,
                         help="random number seed. Default value of None will use int(time.time()) . Seed will be offset by MPI rank, so each rank always has a unique seed amongst all ranks.",
                         type=int)
@@ -115,15 +115,16 @@ def run(args, seeds, jid, njobs, gvec=None):
         mask = np.ones((ydim, xdim), bool)
     else:
         geom_dirname=os.path.join(os.path.dirname(__file__))
-        if args.geom == "pilatus":
-            geom_f = os.path.join(geom_dirname, "pilatus_1_00001.cbf")
-        elif args.geom == "eiger":
-            geom_f = os.path.join(geom_dirname, "eiger_1_00001.cbf")
+        shortcuts = {"pilatus": "pilatus_1_00001.cbf",
+                     "eiger": "eiger_1_00001.cbf",
+                     "mar": "rayonix_1_00001.cbf"}
+        if args.geom in shortcuts:
+            geom_f = os.path.join(geom_dirname, shortcuts[args.geom])
         else:
-            geom_f = os.path.join(geom_dirname, "rayonix_1_00001.cbf")
+            geom_f = args.geom
 
         if not os.path.exists(geom_f):
-            raise OSError(f"Geometry file {geom_f} does not exist, try running `resonet-getsimdata`.")
+            raise OSError(f"Geometry file {geom_f} does not exist.")
         loader = dxtbx.load(geom_f)
         DET = loader.get_detector()
         BEAM = loader.get_beam()
