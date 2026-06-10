@@ -54,6 +54,7 @@ def args(use_joblib=False):
     parser.add_argument("--xtalShape", default="gauss", type = str, help="shape factor of the relp, can be gauss, square, or gauss_star (default=gauss)")
     parser.add_argument("--shotsPerEx", default=1, type=int, help="number of shots per example, if more than 1, each shot will have same params but a random Umat")
     parser.add_argument("--randHits", action="store_true", help="generate diffraction+background images and background-only images with equal probability")
+    parser.add_argument("--diffBragg", action="store_true", help="use diffBragg backend instead of nanoBragg for spot simulation")
     if use_joblib:
         parser.add_argument("--njobs", default=None, type=int, help="number of jobs")
     args = parser.parse_args()
@@ -179,6 +180,7 @@ def run(args, seeds, jid, njobs, gvec=None):
     HS.bg_only = args.bgOnly
     HS.xtal_shape = args.xtalShape
     HS.shots_per_example = args.shotsPerEx
+    HS.use_diffBragg = args.diffBragg
     pixsize = DET[0].get_pixel_size()[0]
 
     # GPU device Id for this rank

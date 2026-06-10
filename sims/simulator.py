@@ -43,6 +43,7 @@ class Simulator:
         self.fix_threefolds = False  # correct F_latt for trigonal / hexagonal space groups (doesnt matter if using gauss_star shape)
         self.xtal_shape = "gauss"  # shape of the RELP, can be square, gauss, or gauss_star
         self.shots_per_example = 1  # if provided simulate will return multiple images, each with a different crystal orientation and noise
+        self.use_diffBragg = False  # if True, use diffBragg backend instead of nanoBragg for spot simulation
         self.mask = None  # place holder for numpy-style pixel mask
         self.gpud = self.exascale_api = None
         self.last_img_spots = None  # place holder for image array (see cache_last_img_components)
@@ -174,12 +175,15 @@ class Simulator:
 
         S.beam = nb_beam
         S.detector = shot_det
-        S.instantiate_nanoBragg(oversample=1)
+        if self.use_diffBragg:
+            S.instantiate_diffBragg(oversample=1)
+        else:
+            S.instantiate_nanoBragg(oversample=1)
 
         # for this detector, this is the minimum resolution allowed
         high_reso = shot_det.get_max_resolution(shot_beam.get_s0())
         if roi is not None:
-            S.D.region_of_interest = roi 
+            S.D.region_of_interest = roi
         if self.verbose:
             S.D.show_params()
             print("Simulating spots!", flush=True)
@@ -189,16 +193,20 @@ class Simulator:
             p1_cryst = deepcopy(C.dxtbx_crystal)
             ref_cryst = p1_cryst.change_basis(C.space_group_info.change_of_basis_op_to_primitive_setting().inverse())
             S.D.set_mosaic_blocks_sym(ref_cryst, reference_symbol=C.symbol, orig_mos_domains=num_blocks)
-        if self.cuda and S.D.add_nanoBragg_spots_cuda is None:
-            print("Warning: Trying to use CUDA, but no simtbx CUDA install available.")
-            self.cuda = False
 
-        if self.cuda:
-            S.D.device_Id = dev
-            S.D.add_nanoBragg_spots_cuda()
+        if self.use_diffBragg:
+            S.D.add_diffBragg_spots_full()
+            spots = S.D.raw_pixels_roi.as_numpy_array()
         else:
-            S.D.add_nanoBragg_spots()
-        spots = S.D.raw_pixels.as_numpy_array()
+            if self.cuda and S.D.add_nanoBragg_spots_cuda is None:
+                print("Warning: Trying to use CUDA, but no simtbx CUDA install available.")
+                self.cuda = False
+            if self.cuda:
+                S.D.device_Id = dev
+                S.D.add_nanoBragg_spots_cuda()
+            else:
+                S.D.add_nanoBragg_spots()
+            spots = S.D.raw_pixels.as_numpy_array()
         xdim, ydim = shot_det[0].get_image_size()
         img_sh = ydim, xdim
         spots = spots.reshape(img_sh)
@@ -234,12 +242,15 @@ class Simulator:
                 S.D.Amatrix = sim_data.Amatrix_dials2nanoBragg(nominal_crystal)
 
                 S.D.raw_pixels *= 0
-                if self.cuda:
-                    S.D.add_nanoBragg_spots_cuda()
+                if self.use_diffBragg:
+                    S.D.add_diffBragg_spots_full()
+                    this_latt_spots = S.D.raw_pixels_roi.as_numpy_array()
                 else:
-                    S.D.add_nanoBragg_spots()
-
-                this_latt_spots = S.D.raw_pixels.as_numpy_array()
+                    if self.cuda:
+                        S.D.add_nanoBragg_spots_cuda()
+                    else:
+                        S.D.add_nanoBragg_spots()
+                    this_latt_spots = S.D.raw_pixels.as_numpy_array()
                 if use_multi:
                     spots += this_latt_spots
                 else:
