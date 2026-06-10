@@ -326,7 +326,7 @@ class Simulator:
                       "Umat": S.crystal.dxtbx_crystal.get_U(),
                       "pitch_deg": pitch_angle*180/np.pi,
                       "yaw_deg": yaw_angle*180/np.pi,
-                      "deltaB": deltaB,
+                      "Bfactor": deltaB + 10,
                       "wavelen_data": None}
 
         if cbf_name:
