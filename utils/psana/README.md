@@ -26,23 +26,11 @@ salloc: Nodes sdfampere011 are ready for job
 Verify you can access 16 tasks via srun (Note, we want to scale this up to >1 node): 
 
 ```
-[sdfiana027]$ srun hostname
-sdfampere011
-sdfampere011
-sdfampere011
-sdfampere011
-sdfampere011
-sdfampere011
-sdfampere011
-sdfampere011
-sdfampere011
-sdfampere011
-sdfampere011
-sdfampere011
-sdfampere011
-sdfampere011
-sdfampere011
-sdfampere011
+[sdfiana027]$ srun hostname | wc -l
+40
+[sdfiana027]$ srun hostname | sort -u
+sdfampere032
+sdfampere033
 ```
 
 and now launch the Resonet workers, which each load the model
@@ -53,14 +41,13 @@ and now launch the Resonet workers, which each load the model
 ... this process will remain active 
 ```
 
-Now, on another psana terminal, verify GPUs processes are running on the worker host (in this example sdfampere0011):
+Now, on another psana terminal, verify GPUs processes are running on the worker hosts
 
 ```
-[sdfiana025]$ ssh sdfampere011 "nvidia-smi"
-$ ssh sdfampere011 "nvidia-smi"
+[sdfiana025]$ ssh sdfampere032 "nvidia-smi"
 tput: No value for $TERM and no -T specified
 tput: No value for $TERM and no -T specified
-Thu Jul 16 09:02:09 2026       
+Thu Jul 16 09:33:21 2026       
 +---------------------------------------------------------------------------------------+
 | NVIDIA-SMI 535.161.07             Driver Version: 535.161.07   CUDA Version: 12.2     |
 |-----------------------------------------+----------------------+----------------------+
@@ -69,19 +56,19 @@ Thu Jul 16 09:02:09 2026
 |                                         |                      |               MIG M. |
 |=========================================+======================+======================|
 |   0  NVIDIA A100-SXM4-40GB          On  | 00000000:01:00.0 Off |                    0 |
-| N/A   31C    P0              54W / 400W |   2156MiB / 40960MiB |      0%      Default |
+| N/A   31C    P0              57W / 400W |   2694MiB / 40960MiB |      0%      Default |
 |                                         |                      |             Disabled |
 +-----------------------------------------+----------------------+----------------------+
 |   1  NVIDIA A100-SXM4-40GB          On  | 00000000:41:00.0 Off |                    0 |
-| N/A   33C    P0              58W / 400W |   1920MiB / 40960MiB |      0%      Default |
+| N/A   32C    P0              58W / 400W |   2458MiB / 40960MiB |      3%      Default |
 |                                         |                      |             Disabled |
 +-----------------------------------------+----------------------+----------------------+
 |   2  NVIDIA A100-SXM4-40GB          On  | 00000000:81:00.0 Off |                    0 |
-| N/A   32C    P0              59W / 400W |   2156MiB / 40960MiB |      0%      Default |
+| N/A   30C    P0              62W / 400W |   2694MiB / 40960MiB |      0%      Default |
 |                                         |                      |             Disabled |
 +-----------------------------------------+----------------------+----------------------+
 |   3  NVIDIA A100-SXM4-40GB          On  | 00000000:C1:00.0 Off |                    0 |
-| N/A   30C    P0              58W / 400W |   1802MiB / 40960MiB |      0%      Default |
+| N/A   30C    P0              72W / 400W |   2222MiB / 40960MiB |      0%      Default |
 |                                         |                      |             Disabled |
 +-----------------------------------------+----------------------+----------------------+
                                                                                          
@@ -90,51 +77,89 @@ Thu Jul 16 09:02:09 2026
 |  GPU   GI   CI        PID   Type   Process name                            GPU Memory |
 |        ID   ID                                                             Usage      |
 |=======================================================================================|
-|    0   N/A  N/A   1220384      C   ...m/simforge/envs/resonet2/bin/python      532MiB |
-|    0   N/A  N/A   1220389      C   ...m/simforge/envs/resonet2/bin/python      532MiB |
-|    0   N/A  N/A   1220394      C   ...m/simforge/envs/resonet2/bin/python      532MiB |
-|    0   N/A  N/A   1220398      C   ...m/simforge/envs/resonet2/bin/python      532MiB |
-|    1   N/A  N/A   1220385      C   ...m/simforge/envs/resonet2/bin/python      414MiB |
-|    1   N/A  N/A   1220390      C   ...m/simforge/envs/resonet2/bin/python      532MiB |
-|    1   N/A  N/A   1220395      C   ...m/simforge/envs/resonet2/bin/python      532MiB |
-|    1   N/A  N/A   1220399      C   ...m/simforge/envs/resonet2/bin/python      414MiB |
-|    2   N/A  N/A   1220386      C   ...m/simforge/envs/resonet2/bin/python      532MiB |
-|    2   N/A  N/A   1220392      C   ...m/simforge/envs/resonet2/bin/python      532MiB |
-|    2   N/A  N/A   1220396      C   ...m/simforge/envs/resonet2/bin/python      532MiB |
-|    2   N/A  N/A   1220400      C   ...m/simforge/envs/resonet2/bin/python      532MiB |
-|    3   N/A  N/A   1220387      C   ...m/simforge/envs/resonet2/bin/python      414MiB |
-|    3   N/A  N/A   1220393      C   ...m/simforge/envs/resonet2/bin/python      414MiB |
-|    3   N/A  N/A   1220397      C   ...m/simforge/envs/resonet2/bin/python      532MiB |
-|    3   N/A  N/A   1220401      C   ...m/simforge/envs/resonet2/bin/python      414MiB |
+|    0   N/A  N/A   3882544      C   ...mforge/envs/resonet2/bin/python3.11      532MiB |
+|    0   N/A  N/A   3882548      C   ...mforge/envs/resonet2/bin/python3.11      532MiB |
+|    0   N/A  N/A   3882552      C   ...mforge/envs/resonet2/bin/python3.11      532MiB |
+|    0   N/A  N/A   3882556      C   ...mforge/envs/resonet2/bin/python3.11      532MiB |
+|    0   N/A  N/A   3882560      C   ...mforge/envs/resonet2/bin/python3.11      532MiB |
+|    1   N/A  N/A   3882545      C   ...mforge/envs/resonet2/bin/python3.11      532MiB |
+|    1   N/A  N/A   3882549      C   ...mforge/envs/resonet2/bin/python3.11      414MiB |
+|    1   N/A  N/A   3882553      C   ...mforge/envs/resonet2/bin/python3.11      414MiB |
+|    1   N/A  N/A   3882557      C   ...mforge/envs/resonet2/bin/python3.11      532MiB |
+|    1   N/A  N/A   3882561      C   ...mforge/envs/resonet2/bin/python3.11      532MiB |
+|    2   N/A  N/A   3882546      C   ...mforge/envs/resonet2/bin/python3.11      532MiB |
+|    2   N/A  N/A   3882550      C   ...mforge/envs/resonet2/bin/python3.11      532MiB |
+|    2   N/A  N/A   3882554      C   ...mforge/envs/resonet2/bin/python3.11      532MiB |
+|    2   N/A  N/A   3882558      C   ...mforge/envs/resonet2/bin/python3.11      532MiB |
+|    2   N/A  N/A   3882562      C   ...mforge/envs/resonet2/bin/python3.11      532MiB |
+|    3   N/A  N/A   3882547      C   ...mforge/envs/resonet2/bin/python3.11      414MiB |
+|    3   N/A  N/A   3882551      C   ...mforge/envs/resonet2/bin/python3.11      414MiB |
+|    3   N/A  N/A   3882555      C   ...mforge/envs/resonet2/bin/python3.11      414MiB |
+|    3   N/A  N/A   3882559      C   ...mforge/envs/resonet2/bin/python3.11      414MiB |
+|    3   N/A  N/A   3882563      C   ...mforge/envs/resonet2/bin/python3.11      532MiB |
 +---------------------------------------------------------------------------------------+
 ```
 
-Looks good, 16 procs running across 4 GPUs on 1 node.. Now, launch the master distrbutor, which sends event codes to the workers...
+Looks good, 20 procs running across 4 GPUs on sdfampere032 node. Verify the same for the other host(s).  
+Now, launch the master distrbutor, which sends event codes to the workers...
 
 ```
-[sdfiana027]$ resonet.psana.master_distributor  --hosts sdfampere011 --nwork 8
+[sdfiana025]$ resonet.psana.master_distributor  --hosts sdfampere032 sdfampere033 --nwork-per-host 20
 Connecting to persistent GPU workers...
- -> Connected to worker: tcp://sdfampere011:5550
- -> Connected to worker: tcp://sdfampere011:5551
- -> Connected to worker: tcp://sdfampere011:5552
- -> Connected to worker: tcp://sdfampere011:5553
- -> Connected to worker: tcp://sdfampere011:5554
- -> Connected to worker: tcp://sdfampere011:5555
- -> Connected to worker: tcp://sdfampere011:5556
- -> Connected to worker: tcp://sdfampere011:5557
+ -> Connected to worker: tcp://sdfampere032:5550
+ -> Connected to worker: tcp://sdfampere032:5551
+ -> Connected to worker: tcp://sdfampere032:5552
+ -> Connected to worker: tcp://sdfampere032:5553
+ -> Connected to worker: tcp://sdfampere032:5554
+ -> Connected to worker: tcp://sdfampere032:5555
+ -> Connected to worker: tcp://sdfampere032:5556
+ -> Connected to worker: tcp://sdfampere032:5557
+ -> Connected to worker: tcp://sdfampere032:5558
+ -> Connected to worker: tcp://sdfampere032:5559
+ -> Connected to worker: tcp://sdfampere032:5560
+ -> Connected to worker: tcp://sdfampere032:5561
+ -> Connected to worker: tcp://sdfampere032:5562
+ -> Connected to worker: tcp://sdfampere032:5563
+ -> Connected to worker: tcp://sdfampere032:5564
+ -> Connected to worker: tcp://sdfampere032:5565
+ -> Connected to worker: tcp://sdfampere032:5566
+ -> Connected to worker: tcp://sdfampere032:5567
+ -> Connected to worker: tcp://sdfampere032:5568
+ -> Connected to worker: tcp://sdfampere032:5569
+ -> Connected to worker: tcp://sdfampere033:5550
+ -> Connected to worker: tcp://sdfampere033:5551
+ -> Connected to worker: tcp://sdfampere033:5552
+ -> Connected to worker: tcp://sdfampere033:5553
+ -> Connected to worker: tcp://sdfampere033:5554
+ -> Connected to worker: tcp://sdfampere033:5555
+ -> Connected to worker: tcp://sdfampere033:5556
+ -> Connected to worker: tcp://sdfampere033:5557
+ -> Connected to worker: tcp://sdfampere033:5558
+ -> Connected to worker: tcp://sdfampere033:5559
+ -> Connected to worker: tcp://sdfampere033:5560
+ -> Connected to worker: tcp://sdfampere033:5561
+ -> Connected to worker: tcp://sdfampere033:5562
+ -> Connected to worker: tcp://sdfampere033:5563
+ -> Connected to worker: tcp://sdfampere033:5564
+ -> Connected to worker: tcp://sdfampere033:5565
+ -> Connected to worker: tcp://sdfampere033:5566
+ -> Connected to worker: tcp://sdfampere033:5567
+ -> Connected to worker: tcp://sdfampere033:5568
+ -> Connected to worker: tcp://sdfampere033:5569
 
-Initialized 8 workers. Ready to process events.
-Progress: 50/500 events processed. (10770.6 ev/sec)
-Progress: 100/500 events processed. (17550.9 ev/sec)
-Progress: 150/500 events processed. (22590.5 ev/sec)
-Progress: 200/500 events processed. (25850.9 ev/sec)
-Progress: 250/500 events processed. (28656.7 ev/sec)
-Progress: 300/500 events processed. (30853.3 ev/sec)
-Progress: 350/500 events processed. (32677.6 ev/sec)
-Progress: 400/500 events processed. (34395.0 ev/sec)
-Progress: 450/500 events processed. (35865.8 ev/sec)
-Progress: 500/500 events processed. (37202.7 ev/sec)
+Initialized 40 workers. Ready to process events.
+Progress: 50/500 events processed. (3643.0 ev/sec)
+Progress: 100/500 events processed. (6978.1 ev/sec)
+Progress: 150/500 events processed. (9980.6 ev/sec)
+Progress: 200/500 events processed. (12825.6 ev/sec)
+Progress: 250/500 events processed. (15523.2 ev/sec)
+Progress: 300/500 events processed. (18064.1 ev/sec)
+Progress: 350/500 events processed. (20317.3 ev/sec)
+Progress: 400/500 events processed. (22461.6 ev/sec)
+Progress: 450/500 events processed. (24419.6 ev/sec)
+Progress: 500/500 events processed. (26607.5 ev/sec)
 Closing connections.
+
 
 ```
 
