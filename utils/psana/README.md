@@ -16,14 +16,14 @@ conda activate resonet2
 Allocat a slurm session from which to launch the persistent RESONET  workers
 
 ```
-[sdfiana027]$ salloc -p ampere -N 1 --account=mli:brave --gpus-per-node=4  --ntasks-per-node=16 --cpus-per-gpu=4
+[sdfiana027]$ salloc -p ampere -N 2 --account=mli:brave --gpus-per-node=4  --ntasks-per-node=20 --cpus-per-gpu=5
 salloc: No OS_VER constraint specified. Defaulting to OS_VER:8.6 for partition 'ampere'
-salloc: Granted job allocation 31905826
+salloc: Granted job allocation 31909490
 salloc: Waiting for resource configuration
-salloc: Nodes sdfampere011 are ready for job
+salloc: Nodes sdfampere[032-033] are ready for job
 ```
 
-Verify you can access 16 tasks via srun (Note, we want to scale this up to >1 node): 
+Verify you can access 40 tasks via srun 
 
 ```
 [sdfiana027]$ srun hostname | wc -l
