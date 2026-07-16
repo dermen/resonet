@@ -10,7 +10,7 @@ import zmq
 def main():
     ap = ArgumentParser()
     ap.add_argument("--hosts", type=str, nargs="+", required=True)
-    ap.add_argument("--nwork", type=int, help="GPU devices per node (default=1)", default=1)
+    ap.add_argument("--nwork-per-host", dest="nwork", type=int, help="GPU devices per node (default=1)", default=1)
     args = ap.parse_args()
     try:
         hosts = args.hosts
