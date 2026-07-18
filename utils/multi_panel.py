@@ -1,5 +1,42 @@
 import numpy as np
 from dxtbx.model import Panel, Detector
+import numpy as np
+
+
+def get_ideal_slices(region_slices, image_shape):
+    # 1. Find the consistent Tile H/W (ignoring the beamstop-affected ones)
+    dims_y = [s[0].stop - s[0].start for s in region_slices if (s[0].stop - s[0].start) > 0]
+    dims_x = [s[1].stop - s[1].start for s in region_slices if (s[1].stop - s[1].start) > 0]
+    tile_h = int(np.median(dims_y))
+    tile_w = int(np.median(dims_x))
+
+    # 2. Find the stride (the distance from start of one tile to start of next)
+    # Using np.diff on unique starts gives us the consistent pitch
+    y_starts = sorted(list(set(s[0].start for s in region_slices)))
+    x_starts = sorted(list(set(s[1].start for s in region_slices)))
+
+    # Calculate step (pitch)
+    step_y = int(np.median(np.diff(y_starts)))
+    step_x = int(np.median(np.diff(x_starts)))
+
+    # 3. Generate only what fits
+    ideal_slices = []
+    max_y, max_x = image_shape
+
+    # We assume a fixed grid layout (e.g., 4 columns)
+    num_cols = len(x_starts)
+
+    current_y = 0
+    while current_y + tile_h <= max_y:
+        for c in range(num_cols):
+            x_start = c * step_x
+            ideal_slices.append((
+                slice(current_y, current_y + tile_h),
+                slice(x_start, x_start + tile_w)
+            ))
+        current_y += step_y
+
+    return ideal_slices
 
 
 def split_eiger_16M_to_panels(raw, detector=None):
@@ -11,8 +48,9 @@ def split_eiger_16M_to_panels(raw, detector=None):
     """
     from scipy.ndimage import label, find_objects
     regions, nregions = label(raw != -1)
-    region_slices = find_objects(regions)
     assert nregions in {32,60}
+    region_slices = find_objects(regions)
+    region_slices = get_ideal_slices(region_slices, raw.shape)
     panels = []
     new_detector = Detector()
 
