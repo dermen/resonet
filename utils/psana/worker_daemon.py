@@ -124,6 +124,7 @@ def run_worker(args):
                 "gpu": gpu_id,
                 "run": meta.get("run", -1),
                 "event": meta.get("event", -1),
+                "timestamp": meta.get("timestamp", 0),
                 "resolution": resolution,
                 "status": status,
             })

@@ -243,6 +243,12 @@ def main():
         quad_img = extract_quad_512(img, det_mask, cent_px, args.ds_factor, quad)
         t_proc_total += time.time() - t0
 
+        # Get event timestamp (psana2 provides nanosecond timestamp)
+        try:
+            timestamp = evt.timestamp
+        except Exception:
+            timestamp = 0
+
         # Build metadata
         meta = {
             "detdist": detdist,
@@ -252,6 +258,7 @@ def main():
             "quad": quad,
             "run": args.run,
             "event": i_evt,
+            "timestamp": timestamp,
             "img_shape": list(quad_img.shape),
         }
 
