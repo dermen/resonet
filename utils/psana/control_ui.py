@@ -74,7 +74,6 @@ class ResonetControlUI:
             ("center_mm",  "Center mm (f,s)",  "155.5 163.5",  14),
             ("ds_factor",  "DS factor",        "4",             4),
             ("det_name",   "Detector name",    "jungfrau",     12),
-            ("nranks",     "psana ranks",      "20",            4),
             ("port_base",  "Port base",        "5550",          6),
         ]
 
@@ -101,7 +100,7 @@ class ResonetControlUI:
 
         # srun prefix (for custom allocation flags)
         row_srun = row_extra + 1
-        self.srun_var = tk.StringVar(value="srun -n {nranks}")
+        self.srun_var = tk.StringVar(value="srun -n 20")
         ttk.Label(frame, text="srun cmd:").grid(
             row=row_srun, column=0, sticky=tk.E, padx=(8, 2))
         ttk.Entry(frame, textvariable=self.srun_var, width=50).grid(
@@ -175,8 +174,7 @@ class ResonetControlUI:
         """Build the srun + live_distributor command from UI fields."""
         f = {k: v.get().strip() for k, v in self.fields.items()}
 
-        srun_template = self.srun_var.get().strip()
-        srun_cmd = srun_template.format(nranks=f["nranks"])
+        srun_cmd = self.srun_var.get().strip()
 
         cmd = srun_cmd.split()
         cmd += ["resonet.psana.live_distributor"]

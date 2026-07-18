@@ -20,6 +20,7 @@ Message format: multipart [metadata_json, image_bytes]
 import os
 import argparse
 import json
+import sys
 
 import zmq
 import torch
@@ -144,7 +145,18 @@ def main():
                         help="Host for PUSH result streaming (disabled if None)")
     parser.add_argument("--result-port", type=int, default=5600,
                         help="Port for PUSH result streaming")
+    parser.add_argument("--logdir", type=str, default=None,
+                        help="Directory for per-rank log files (rank{N}.out, rank{N}.err). "
+                             "Created if it doesn't exist. If None, logs go to stdout/stderr.")
     args = parser.parse_args()
+
+    # Redirect stdout/stderr to per-rank log files if requested
+    if args.logdir is not None:
+        global_id = int(os.environ.get("SLURM_PROCID", 0))
+        os.makedirs(args.logdir, exist_ok=True)
+        sys.stdout = open(os.path.join(args.logdir, f"rank{global_id}.out"), "w", buffering=1)
+        sys.stderr = open(os.path.join(args.logdir, f"rank{global_id}.err"), "w", buffering=1)
+
     run_worker(args)
 
 
