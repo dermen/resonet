@@ -1,4 +1,6 @@
 from argparse import ArgumentParser
+
+import numpy as np
 from torch import optim
 from torch.utils.data import DataLoader
 from torch.utils.data import random_split
@@ -7,7 +9,6 @@ from resonet.loaders import CompressDset # Assuming this is your custom loader
 from resonet.losses import TVLoss, diceLoss
 from resonet.net import get_logger
 import torch
-import numpy as np
 
 
 def args():

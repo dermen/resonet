@@ -2,6 +2,7 @@
 import numpy as np
 import h5py
 import ast
+from copy import deepcopy
 
 from dxtbx.format.FormatHDF5 import FormatHDF5
 from dials.array_family import flex
@@ -32,6 +33,9 @@ class FormatDiffComp(FormatHDF5):
         self._handle = h5py.File(self._image_file, "r")
         self.images = list(self._handle.keys())
         self._geometry_define()
+        self._wavelengths = None
+        if "wavelengths" in self._handle:
+            self._wavelengths = self._handle["wavelengths"][:]
 
     def _geometry_define(self):
         det_str = self._handle.attrs["dxtbx_detector_string"]
@@ -107,6 +111,12 @@ class FormatDiffComp(FormatHDF5):
         return self._cctbx_scan
 
     def get_beam(self, index=0):
+        if self._wavelengths is not None:
+            wl = float(self._wavelengths[index])
+            if wl > 0:
+                beam = deepcopy(self._cctbx_beam)
+                beam.set_wavelength(wl)
+                return beam
         return self._cctbx_beam
 
 

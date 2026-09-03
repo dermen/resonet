@@ -55,10 +55,13 @@ def default_model_path():
     return model_path
 
 
-def load_model(model_file=None):
+def load_model(model_file=None, map_location=None):
     if model_file is None:
         model_file = default_model_path()
-    info=torch.load(model_file, weights_only=True)
+    load_kwargs = {"weights_only": True}
+    if map_location is not None:
+        load_kwargs["map_location"] = map_location
+    info=torch.load(model_file, **load_kwargs)
     model_name = info["model_name"]
     if model_name.startswith("eff"):
         model_num = int(model_name.split("-b")[1])

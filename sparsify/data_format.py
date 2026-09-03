@@ -8,7 +8,7 @@ import json
 class DiffCompWriter:
 
   def __init__(self, filename, detector, beam, compression_args=None,
-               goniometer=None, scan=None, file_ops=None):
+               goniometer=None, scan=None, file_ops=None, wavelengths=None):
     """
     Simple class for writing dxtbx compatible HDF5 files
 
@@ -22,6 +22,7 @@ class DiffCompWriter:
           comression_args = {"compression": "gzip", "compression_opts":9}
     :param goniometer: dxtbx goniometer obj
     :param scan: dxtbx scan obj
+    :param wavelengths: optional array of per-shot wavelengths (length = num_images)
     """
     if file_ops is None:
         file_ops = {}
@@ -32,6 +33,8 @@ class DiffCompWriter:
     self.goniometer = goniometer
     self.scan = scan
     self._write_geom()
+    if wavelengths is not None:
+      self.file_handle.create_dataset("wavelengths", data=np.array(wavelengths, dtype=np.float64))
     self.file_handle.attrs["format"] = "DiffComp"
 
   def add_image(self, pid, fast, slow, val, scan_num):

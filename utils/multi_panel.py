@@ -47,8 +47,8 @@ def split_eiger_16M_to_panels(raw, detector=None):
     :return: bunch of stuff
     """
     from scipy.ndimage import label, find_objects
-    regions, nregions = label(raw != -1)
-    assert nregions in {32,60}
+    regions, nregions = label(raw >= 0)
+    assert nregions in {32,60}, "nregions=%d" % nregions
     region_slices = find_objects(regions)
     region_slices = get_ideal_slices(region_slices, raw.shape)
     panels = []
