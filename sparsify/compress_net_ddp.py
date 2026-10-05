@@ -89,9 +89,10 @@ def train(args):
     world_size = COMM.size
     LOCAL_COMM = mpi_utils.get_host_comm()
     local_rank = LOCAL_COMM.rank
+    ngpu_per_node = LOCAL_COMM.size
 
-    # Init DDP
-    ddp_utils.slurm_init(COMM, LOCAL_COMM)
+    # Init DDP (same pattern as td_net.py)
+    ddp_utils.slurm_init(COMM, mpi_utils.get_host_comm())
     torch.cuda.set_device(local_rank)
     dev = torch.device(f"cuda:{local_rank}")
 
