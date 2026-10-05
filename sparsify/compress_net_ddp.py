@@ -81,7 +81,7 @@ def parse_args():
     ap.add_argument("--resume", type=str, default=None,
                     help="Path to checkpoint to resume from")
     ap.add_argument("--seed", type=int, default=42, help="Random seed")
-    ap.add_argument("--num_workers", type=int, default=4,
+    ap.add_argument("--num_workers", type=int, default=2,
                     help="DataLoader workers per GPU")
     return ap.parse_args()
 
@@ -193,7 +193,7 @@ def train(args):
     if args.lr_schedule == "plateau":
         main_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode='min', factor=args.plateau_factor,
-            patience=args.plateau_patience, verbose=(rank == 0))
+            patience=args.plateau_patience)
     elif args.lr_schedule == "cosine":
         main_scheduler = optim.lr_scheduler.CosineAnnealingLR(
             optimizer, T_max=args.nep - args.warmup_epochs)
