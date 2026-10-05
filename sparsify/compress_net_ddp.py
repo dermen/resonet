@@ -2,13 +2,14 @@
 Distributed Data Parallel training for the sparsify/compress segmentation model.
 Uses MPI + NCCL backend, following the td_net.py pattern.
 
-Usage:
+Usage (DDP):
   srun -c2 python compress_net_ddp.py \
     500k_master.h5 --outdir $SCRATCH/compress_train ...
-"""
 
-from mpi4py import MPI
-COMM = MPI.COMM_WORLD
+Usage (single-GPU test):
+  python compress_net_ddp.py --single_gpu \
+    500k_master.h5 --outdir /tmp/compress_test --datafrac 0.001 --nep 2
+"""
 
 import os
 import sys
@@ -29,8 +30,13 @@ from torch.utils.data.distributed import DistributedSampler
 from resonet.sparsify import sparsify_models
 from resonet.loaders import CompressDset
 from resonet.losses import TVLoss
-from resonet.utils import ddp as ddp_utils
-from resonet.utils import mpi as mpi_utils
+
+# MPI is optional — only needed for DDP mode
+try:
+    from mpi4py import MPI
+    COMM = MPI.COMM_WORLD
+except ImportError:
+    COMM = None
 
 
 def get_logger(rank, filename=None):
@@ -81,24 +87,34 @@ def parse_args():
     ap.add_argument("--seed", type=int, default=42, help="Random seed")
     ap.add_argument("--num_workers", type=int, default=2,
                     help="DataLoader workers per GPU")
+    ap.add_argument("--single_gpu", action="store_true",
+                    help="Run on single GPU without MPI/DDP (for testing)")
     return ap.parse_args()
 
 
-def train(args):
-    rank = COMM.rank
-    world_size = COMM.size
-    LOCAL_COMM = mpi_utils.get_host_comm()
-    local_rank = LOCAL_COMM.rank
-    ngpu_per_node = LOCAL_COMM.size
+def train(args, use_ddp=True):
+    if use_ddp:
+        from resonet.utils import ddp as ddp_utils
+        from resonet.utils import mpi as mpi_utils
+        rank = COMM.rank
+        world_size = COMM.size
+        LOCAL_COMM = mpi_utils.get_host_comm()
+        local_rank = LOCAL_COMM.rank
 
-    # Init DDP (same pattern as td_net.py)
-    ddp_utils.slurm_init(COMM, mpi_utils.get_host_comm())
-    torch.cuda.set_device(local_rank)
-    dev = torch.device(f"cuda:{local_rank}")
+        # Init DDP (same pattern as td_net.py)
+        ddp_utils.slurm_init(COMM, mpi_utils.get_host_comm())
+        torch.cuda.set_device(local_rank)
+        dev = torch.device(f"cuda:{local_rank}")
 
-    if rank == 0:
+        if rank == 0:
+            os.makedirs(args.outdir, exist_ok=True)
+        COMM.barrier()
+    else:
+        rank = 0
+        world_size = 1
+        local_rank = 0
+        dev = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         os.makedirs(args.outdir, exist_ok=True)
-    COMM.barrier()
 
     logger = get_logger(rank, os.path.join(args.outdir, "train.log") if rank == 0 else None)
 
@@ -168,10 +184,15 @@ def train(args):
     if rank == 0:
         logger.info(f"Train: {ntrain}, Test: {ntest}")
 
-    train_sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank, shuffle=True)
-    test_sampler = DistributedSampler(test_ds, num_replicas=world_size, rank=rank, shuffle=False)
+    if use_ddp:
+        train_sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank, shuffle=True)
+        test_sampler = DistributedSampler(test_ds, num_replicas=world_size, rank=rank, shuffle=False)
+    else:
+        train_sampler = None
+        test_sampler = None
 
     train_dl = DataLoader(train_ds, batch_size=args.bs, sampler=train_sampler,
+                          shuffle=(train_sampler is None),
                           num_workers=args.num_workers, pin_memory=True, drop_last=True)
     test_dl = DataLoader(test_ds, batch_size=args.bs, sampler=test_sampler,
                          num_workers=args.num_workers, pin_memory=True)
@@ -179,9 +200,11 @@ def train(args):
     # Model (padded variant handles variable panel sizes like 512x1028, 514x1030)
     effnet_num = int(args.model.split("-b")[1])
     model = sparsify_models.PaddedEfficientNet(b=effnet_num)
-    model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+    if use_ddp:
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     model = model.float().to(dev)
-    model = DDP(model, device_ids=[local_rank], find_unused_parameters=True)
+    if use_ddp:
+        model = DDP(model, device_ids=[local_rank], find_unused_parameters=True)
 
     # Optimizer
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
@@ -201,13 +224,17 @@ def train(args):
     # Loss
     loss_fn = TVLoss(falseP_weight=args.FPRate)
 
+    # Helper to get the inner Sequential model regardless of DDP wrapping
+    def get_inner_model():
+        m = model.module if use_ddp else model
+        return m.model  # PaddedEfficientNet -> inner Sequential
+
     # Resume
     start_epoch = 0
     best_val_loss = np.inf
     if args.resume is not None:
         ckpt = torch.load(args.resume, map_location=dev, weights_only=True)
-        # unwrap DDP -> PaddedEfficientNet -> inner model (Sequential)
-        model.module.model.load_state_dict(ckpt['model_state_dict'])
+        get_inner_model().load_state_dict(ckpt['model_state_dict'])
         optimizer.load_state_dict(ckpt['optimizer_state_dict'])
         start_epoch = ckpt.get('epoch', 0) + 1
         best_val_loss = ckpt.get('loss', np.inf)
@@ -216,7 +243,8 @@ def train(args):
 
     for epoch in range(start_epoch, args.nep):
         t_epoch = time.time()
-        train_sampler.set_epoch(epoch)
+        if train_sampler is not None:
+            train_sampler.set_epoch(epoch)
 
         # Warmup LR
         if epoch < args.warmup_epochs:
@@ -244,16 +272,19 @@ def train(args):
             train_loss_sum += loss.item()
             train_batches += 1
 
-            if rank == 0 and (i_batch + 1) % 50 == 0:
+            if rank == 0:
                 print(f"  Ep {epoch+1} train: {i_batch+1}/{len(train_dl)} "
                       f"batch_loss={loss.item():.6f} "
                       f"epoch_avg={train_loss_sum/train_batches:.6f}",
-                      end="\r", flush=True)
+                      flush=True)
 
-        # All-reduce train loss
-        train_loss_tensor = torch.tensor([train_loss_sum, train_batches], device=dev)
-        td.all_reduce(train_loss_tensor)
-        avg_train_loss = (train_loss_tensor[0] / train_loss_tensor[1]).item()
+        # All-reduce train loss (DDP only)
+        if use_ddp:
+            train_loss_tensor = torch.tensor([train_loss_sum, train_batches], device=dev)
+            td.all_reduce(train_loss_tensor)
+            avg_train_loss = (train_loss_tensor[0] / train_loss_tensor[1]).item()
+        else:
+            avg_train_loss = train_loss_sum / train_batches if train_batches > 0 else 0.0
 
         if rank == 0:
             print()
@@ -273,9 +304,12 @@ def train(args):
                 test_loss_sum += loss.item()
                 test_batches += 1
 
-        test_loss_tensor = torch.tensor([test_loss_sum, test_batches], device=dev)
-        td.all_reduce(test_loss_tensor)
-        avg_test_loss = (test_loss_tensor[0] / test_loss_tensor[1]).item()
+        if use_ddp:
+            test_loss_tensor = torch.tensor([test_loss_sum, test_batches], device=dev)
+            td.all_reduce(test_loss_tensor)
+            avg_test_loss = (test_loss_tensor[0] / test_loss_tensor[1]).item()
+        else:
+            avg_test_loss = test_loss_sum / test_batches if test_batches > 0 else 0.0
 
         t_epoch = time.time() - t_epoch
         current_lr = optimizer.param_groups[0]['lr']
@@ -300,7 +334,7 @@ def train(args):
         # Checkpointing (rank 0 only)
         if rank == 0:
             checkpoint = {
-                'model_state_dict': model.module.model.state_dict(),  # unwrap DDP -> PaddedEfficientNet -> inner model
+                'model_state_dict': get_inner_model().state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'epoch': epoch,
                 'loss': avg_test_loss,
@@ -322,12 +356,18 @@ def train(args):
     if rank == 0:
         logger.info(f"Training complete. Best val loss: {best_val_loss:.6f}")
 
-    td.destroy_process_group()
+    if use_ddp:
+        td.destroy_process_group()
 
 
 if __name__ == "__main__":
-    args = None
-    if COMM.rank == 0:
+    # Peek at --single_gpu before full parse (avoids MPI requirement for single-GPU mode)
+    if "--single_gpu" in sys.argv or COMM is None:
         args = parse_args()
-    args = COMM.bcast(args)
-    train(args)
+        train(args, use_ddp=False)
+    else:
+        args = None
+        if COMM.rank == 0:
+            args = parse_args()
+        args = COMM.bcast(args)
+        train(args, use_ddp=True)
