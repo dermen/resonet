@@ -3,16 +3,14 @@ Distributed Data Parallel training for the sparsify/compress segmentation model.
 Uses MPI + NCCL backend, following the td_net.py pattern.
 
 Usage:
-  srun -N <nodes> --ntasks-per-node=4 --gpus-per-node=4 \
-    conda run -n simtbx python -m resonet.sparsify.compress_net_ddp \
-    $SCRATCH/diffract_compress/500k_run --outdir $SCRATCH/compress_train ...
+  srun -c2 conda run -n simtbx python compress_net_ddp.py \
+    500k_master.h5 --outdir $SCRATCH/compress_train ...
 """
 
 from mpi4py import MPI
 COMM = MPI.COMM_WORLD
 
 import os
-import glob
 import time
 import logging
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
@@ -23,7 +21,7 @@ import torch
 import torch.distributed as td
 from torch import optim
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data import DataLoader, ConcatDataset, random_split
+from torch.utils.data import DataLoader, random_split
 from torch.utils.data.distributed import DistributedSampler
 
 from resonet.sparsify import sparsify_models
@@ -50,35 +48,10 @@ def get_logger(rank, filename=None):
     return logger
 
 
-def find_h5_files(datadir):
-    """Find all compressed*.h5 files under datadir (recursively)."""
-    pattern = os.path.join(datadir, "**", "compressed*.h5")
-    files = sorted(glob.glob(pattern, recursive=True))
-    if not files:
-        pattern = os.path.join(datadir, "**", "rank*.h5")
-        files = sorted(glob.glob(pattern, recursive=True))
-    return files
-
-
-def build_dataset(h5_files, logger=None):
-    """Build a ConcatDataset from multiple H5 files."""
-    datasets = []
-    total = 0
-    for f in h5_files:
-        with h5py.File(f, "r") as h:
-            n = h["images"].shape[0]
-        ds = CompressDset(f, maximgs=n)
-        datasets.append(ds)
-        total += n
-    if logger:
-        logger.info(f"Found {len(h5_files)} H5 files, {total} total panels")
-    return ConcatDataset(datasets), total
-
-
 def parse_args():
     ap = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
-    ap.add_argument("datadir", type=str,
-                    help="Directory containing H5 files (searched recursively for compressed*.h5)")
+    ap.add_argument("h5name", type=str,
+                    help="Path to the HDF5 file (e.g. 500k_master.h5)")
     ap.add_argument("--outdir", type=str, required=True,
                     help="Output directory for checkpoints and logs")
     ap.add_argument("--nep", default=50, type=int, help="Max epochs")
@@ -137,22 +110,16 @@ def train(args):
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    # Build dataset
-    h5_files = None
+    # Build dataset from single H5 file
+    with h5py.File(args.h5name, "r") as f:
+        total_panels = f['images'].shape[0]
     if rank == 0:
-        h5_files = find_h5_files(args.datadir)
-        assert len(h5_files) > 0, f"No H5 files found in {args.datadir}"
-    h5_files = COMM.bcast(h5_files)
+        logger.info(f"H5 file: {args.h5name}, {total_panels} total panels")
 
-    full_dataset, total_panels = build_dataset(h5_files, logger if rank == 0 else None)
-
-    # Subsample if needed
     use_n = int(total_panels * args.datafrac)
-    if use_n < total_panels:
-        full_dataset, _ = random_split(full_dataset, [use_n, total_panels - use_n],
-                                       generator=torch.Generator().manual_seed(args.seed))
-        if rank == 0:
-            logger.info(f"Using {use_n}/{total_panels} panels (datafrac={args.datafrac})")
+    full_dataset = CompressDset(args.h5name, maximgs=use_n)
+    if rank == 0 and use_n < total_panels:
+        logger.info(f"Using {use_n}/{total_panels} panels (datafrac={args.datafrac})")
 
     ntrain = int(use_n * args.trainfrac)
     ntest = use_n - ntrain
