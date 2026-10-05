@@ -25,6 +25,25 @@ torch.serialization.add_safe_globals([
     np.dtypes.StrDType,
 ])
 
+class DownsampleWrapper(torch.nn.Module):
+    """Wraps a segmentation model with maxpool downsampling on input
+    and nearest-neighbor upsampling on output. This preserves weak signals
+    by using maxpool (keeps peak intensities) while reducing spatial dims."""
+
+    def __init__(self, model, factor=2):
+        super().__init__()
+        self.model = model
+        self.factor = factor
+        self.pool = torch.nn.MaxPool2d(kernel_size=factor, stride=factor)
+
+    def forward(self, x):
+        orig_size = x.shape[2:]  # (H, W)
+        x = self.pool(x)
+        x = self.model(x)
+        x = torch.nn.functional.interpolate(x, size=orig_size, mode='nearest')
+        return x
+
+
 class FCN50(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -70,5 +89,8 @@ def load_model(model_file=None, map_location=None):
         model = FCN50()
     else:
         raise  NotImplementedError("Do not know how to load model %s" % model_name)
+    downsample_factor = info.get("downsample_factor", None)
+    if downsample_factor is not None and downsample_factor > 1:
+        model = DownsampleWrapper(model, factor=downsample_factor)
     model.load_state_dict(info["model_state_dict"])
     return model

@@ -12,6 +12,7 @@ ap.add_argument("--closings", type=int, default=2)
 ap.add_argument("--openings", type=int, default=4)
 ap.add_argument("--dilations", type=int, default=1)
 ap.add_argument("--dialsMode", action="store_true", help="if True, skip the AI model and just use DIALS to find spots")
+ap.add_argument("--dialsDefault", action="store_true", help="if True, use default DIALS spot find params")
 ap.add_argument("--dtype", default="float16",type=str, choices=["float16", "float32", "float64"] )
 ap.add_argument("--verbose", action="store_true")
 ap.add_argument("--forceStill", action="store_true")
@@ -137,7 +138,13 @@ def sparsify_image(img, model, dev, args):
             tout += time.time()-t
             peaks = (out > args.cutoff)[0, 0].detach().cpu().numpy()
         else:
-            peaks = find_spots.dials_find_spots(p, sigma_background=2, sigma_strong=1,
+            if args.dialsDefault:
+              peaks = find_spots.dials_find_spots(p,
+                                                algorithm="dispersion_extended")
+            else:
+              #peaks = find_spots.dials_find_spots(p, sigma_background=2, sigma_strong=1,
+              peaks = find_spots.dials_find_spots(p, sigma_background=1, 
+                                                  sigma_strong=1.,
                                                 algorithm="dispersion_extended")
         t = time.time()
         if args.closings > 0:
@@ -231,6 +238,7 @@ all_imgnames = None
 if COMM.rank==0:
     os.makedirs(args.outdir, exist_ok=True)
     all_imgnames = exptlist_from_imgname(args.image, outexpt)
+COMM.barrier()
 all_imgnames = COMM.bcast(all_imgnames)
 
 total_Gbytes =files_du(all_imgnames)
