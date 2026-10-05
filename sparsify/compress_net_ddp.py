@@ -11,8 +11,10 @@ from mpi4py import MPI
 COMM = MPI.COMM_WORLD
 
 import os
+import sys
 import time
 import logging
+import socket
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 import numpy as np
@@ -102,9 +104,36 @@ def train(args):
     logger = get_logger(rank, os.path.join(args.outdir, "train.log") if rank == 0 else None)
 
     if rank == 0:
+        # Log full run configuration
+        logger.info("=" * 60)
+        logger.info("compress_net_ddp.py")
+        logger.info("=" * 60)
+        logger.info(f"Command: {' '.join(sys.argv)}")
+        logger.info(f"Working dir: {os.getcwd()}")
+        logger.info(f"Host: {socket.gethostname()}")
+        logger.info(f"Python: {sys.executable}")
+        logger.info(f"PyTorch: {torch.__version__}")
+        logger.info(f"CUDA: {torch.version.cuda}")
+        if torch.cuda.is_available():
+            logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
         logger.info(f"World size: {world_size}")
-        logger.info(f"Args: {args}")
+        logger.info(f"Per-GPU batch size: {args.bs}")
         logger.info(f"Effective batch size: {args.bs * world_size}")
+        logger.info("-" * 60)
+        for k, v in vars(args).items():
+            logger.info(f"  {k}: {v}")
+        logger.info("-" * 60)
+
+        # Save commandline to output folder
+        cmd_file = os.path.join(args.outdir, "commandline.txt")
+        with open(cmd_file, "w") as o:
+            o.write(f"working dir: {os.getcwd()}\n")
+            o.write(f"Command: {' '.join(sys.argv)}\n")
+            o.write(f"Host: {socket.gethostname()}\n")
+            o.write(f"World size: {world_size}\n")
+            o.write(f"Effective batch size: {args.bs * world_size}\n\n")
+            for k, v in vars(args).items():
+                o.write(f"{k}: {v}\n")
 
     # Seed
     torch.manual_seed(args.seed)
@@ -113,8 +142,19 @@ def train(args):
     # Build dataset from single H5 file
     with h5py.File(args.h5name, "r") as f:
         total_panels = f['images'].shape[0]
+        img_shape = f['images'].shape[1:]  # (H, W)
     if rank == 0:
-        logger.info(f"H5 file: {args.h5name}, {total_panels} total panels")
+        logger.info(f"H5 file: {args.h5name}")
+        logger.info(f"Total panels: {total_panels}, panel shape: {img_shape}")
+        h, w = img_shape
+        D = sparsify_models.PaddedEfficientNet.DIVISOR
+        pad_h = (D - h % D) % D
+        pad_w = (D - w % D) % D
+        if pad_h > 0 or pad_w > 0:
+            logger.info(f"PaddedEfficientNet will pad: ({h},{w}) -> ({h+pad_h},{w+pad_w}) "
+                        f"(divisible by {D} for EfficientNet encoder)")
+        else:
+            logger.info(f"Panel dims already divisible by {D}")
 
     use_n = int(total_panels * args.datafrac)
     full_dataset = CompressDset(args.h5name, maximgs=use_n)
@@ -137,9 +177,9 @@ def train(args):
     test_dl = DataLoader(test_ds, batch_size=args.bs, sampler=test_sampler,
                          num_workers=args.num_workers, pin_memory=True)
 
-    # Model
+    # Model (padded variant handles variable panel sizes like 512x1028, 514x1030)
     effnet_num = int(args.model.split("-b")[1])
-    model = sparsify_models.efficientnet(b=effnet_num)
+    model = sparsify_models.PaddedEfficientNet(b=effnet_num)
     model = model.float().to(dev)
     model = DDP(model, device_ids=[local_rank])
 
@@ -166,7 +206,7 @@ def train(args):
     best_val_loss = np.inf
     if args.resume is not None:
         ckpt = torch.load(args.resume, map_location=dev)
-        model.module.load_state_dict(ckpt['model_state_dict'])
+        model.module.model.load_state_dict(ckpt['model_state_dict'])  # unwrap DDP -> PaddedEfficientNet -> inner model
         optimizer.load_state_dict(ckpt['optimizer_state_dict'])
         start_epoch = ckpt.get('epoch', 0) + 1
         best_val_loss = ckpt.get('loss', np.inf)
@@ -224,6 +264,7 @@ def train(args):
             for img, lab in test_dl:
                 img = img.float().to(dev)
                 lab = lab.float().to(dev)
+
                 out = model(img)
                 loss = loss_fn(out, lab)
                 test_loss_sum += loss.item()
@@ -251,7 +292,7 @@ def train(args):
         # Checkpointing (rank 0 only)
         if rank == 0:
             checkpoint = {
-                'model_state_dict': model.module.state_dict(),
+                'model_state_dict': model.module.model.state_dict(),  # unwrap DDP -> PaddedEfficientNet -> inner model
                 'optimizer_state_dict': optimizer.state_dict(),
                 'epoch': epoch,
                 'loss': avg_test_loss,

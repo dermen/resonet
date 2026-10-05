@@ -25,6 +25,36 @@ torch.serialization.add_safe_globals([
     np.dtypes.StrDType,
 ])
 
+class PaddedEfficientNet(torch.nn.Module):
+    """EfficientNet U-Net that auto-pads inputs to a multiple of 32
+    and crops outputs back to the original size. Needed because the
+    encoder downsamples 5x (factor 32), and eiger panels (e.g. 512x1028
+    or 514x1030) may not be divisible by 32."""
+
+    DIVISOR = 32
+
+    def __init__(self, b=0):
+        super().__init__()
+        unet_model = Unet(
+            encoder_name="efficientnet-b%d" % b,
+            encoder_weights="imagenet",
+            in_channels=1,
+            classes=1
+        )
+        self.model = torch.nn.Sequential(unet_model, torch.nn.Sigmoid())
+
+    def forward(self, x):
+        _, _, h, w = x.shape
+        pad_h = (self.DIVISOR - h % self.DIVISOR) % self.DIVISOR
+        pad_w = (self.DIVISOR - w % self.DIVISOR) % self.DIVISOR
+        if pad_h > 0 or pad_w > 0:
+            x = torch.nn.functional.pad(x, (0, pad_w, 0, pad_h), mode='constant', value=0)
+        x = self.model(x)
+        if pad_h > 0 or pad_w > 0:
+            x = x[:, :, :h, :w]
+        return x
+
+
 class DownsampleWrapper(torch.nn.Module):
     """Wraps a segmentation model with maxpool downsampling on input
     and nearest-neighbor upsampling on output. This preserves weak signals
