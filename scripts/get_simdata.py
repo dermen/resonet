@@ -35,7 +35,7 @@ def main():
     print("Downloading the simulation data:")
     data_folder = os.path.join(dirname, "for_tutorial")
     if not os.path.exists(data_folder):
-        url='https://bl831.als.lbl.gov/~jamesh/resonet/for_tutorial.tar.gz'
+        url='https://smb.slac.stanford.edu/~dermen/for_tutorial.tar.gz'
         try:
             f = dl(url)
         except Exception as err:
