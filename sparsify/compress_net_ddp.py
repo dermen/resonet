@@ -3,7 +3,7 @@ Distributed Data Parallel training for the sparsify/compress segmentation model.
 Uses MPI + NCCL backend, following the td_net.py pattern.
 
 Usage:
-  srun -c2 conda run -n simtbx python compress_net_ddp.py \
+  srun -c2 python compress_net_ddp.py \
     500k_master.h5 --outdir $SCRATCH/compress_train ...
 """
 
@@ -65,8 +65,6 @@ def parse_args():
     ap.add_argument("--trainfrac", default=0.9, type=float, help="Train/test split")
     ap.add_argument("--model", type=str, default="eff-b0",
                     choices=["eff-b0", "eff-b1", "eff-b2", "eff-b3", "eff-b4"])
-    ap.add_argument("--patience", type=int, default=15,
-                    help="Early stopping patience (in epochs)")
     ap.add_argument("--FPRate", type=float, default=0.5,
                     help="TVLoss false positive weight (0.5 = Dice)")
     ap.add_argument("--lr_schedule", type=str, default="plateau",
@@ -76,7 +74,7 @@ def parse_args():
                     help="ReduceLROnPlateau factor")
     ap.add_argument("--plateau_patience", type=int, default=5,
                     help="ReduceLROnPlateau patience")
-    ap.add_argument("--save_freq", type=int, default=5,
+    ap.add_argument("--save_freq", type=int, default=1,
                     help="Save checkpoint every N epochs (in addition to best)")
     ap.add_argument("--resume", type=str, default=None,
                     help="Path to checkpoint to resume from")
@@ -180,15 +178,16 @@ def train(args):
     # Model (padded variant handles variable panel sizes like 512x1028, 514x1030)
     effnet_num = int(args.model.split("-b")[1])
     model = sparsify_models.PaddedEfficientNet(b=effnet_num)
+    model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     model = model.float().to(dev)
-    model = DDP(model, device_ids=[local_rank])
+    model = DDP(model, device_ids=[local_rank], find_unused_parameters=True)
 
     # Optimizer
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
 
     # LR scheduler
-    warmup_scheduler = None
     main_scheduler = None
+    prev_lr = args.lr
 
     if args.lr_schedule == "plateau":
         main_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -205,15 +204,14 @@ def train(args):
     start_epoch = 0
     best_val_loss = np.inf
     if args.resume is not None:
-        ckpt = torch.load(args.resume, map_location=dev)
-        model.module.model.load_state_dict(ckpt['model_state_dict'])  # unwrap DDP -> PaddedEfficientNet -> inner model
+        ckpt = torch.load(args.resume, map_location=dev, weights_only=True)
+        # unwrap DDP -> PaddedEfficientNet -> inner model (Sequential)
+        model.module.model.load_state_dict(ckpt['model_state_dict'])
         optimizer.load_state_dict(ckpt['optimizer_state_dict'])
         start_epoch = ckpt.get('epoch', 0) + 1
         best_val_loss = ckpt.get('loss', np.inf)
         if rank == 0:
             logger.info(f"Resumed from epoch {start_epoch}, best_val_loss={best_val_loss:.6f}")
-
-    patience_counter = 0
 
     for epoch in range(start_epoch, args.nep):
         t_epoch = time.time()
@@ -235,6 +233,9 @@ def train(args):
 
             optimizer.zero_grad()
             out = model(img)
+            # Squeeze channel dim: (B, 1, H, W) -> (B, H, W) to match lab shape
+            # Without this, TVLoss broadcasts (B,1,H,W)*(B,H,W) -> (B,B,H,W) cross-product
+            out = out.squeeze(1)
             loss = loss_fn(out, lab)
             loss.backward()
             optimizer.step()
@@ -266,6 +267,7 @@ def train(args):
                 lab = lab.float().to(dev)
 
                 out = model(img)
+                out = out.squeeze(1)
                 loss = loss_fn(out, lab)
                 test_loss_sum += loss.item()
                 test_batches += 1
@@ -288,6 +290,11 @@ def train(args):
                 main_scheduler.step(avg_test_loss)
             else:
                 main_scheduler.step()
+            # Log LR changes (since verbose was removed from ReduceLROnPlateau)
+            new_lr = optimizer.param_groups[0]['lr']
+            if rank == 0 and new_lr != prev_lr:
+                logger.info(f"LR reduced: {prev_lr:.2e} -> {new_lr:.2e}")
+            prev_lr = new_lr
 
         # Checkpointing (rank 0 only)
         if rank == 0:
@@ -304,25 +311,12 @@ def train(args):
 
             if avg_test_loss < best_val_loss:
                 logger.info(f"New best: {best_val_loss:.6f} -> {avg_test_loss:.6f}")
-                patience_counter = 0
                 best_val_loss = avg_test_loss
                 checkpoint['loss'] = best_val_loss
                 torch.save(checkpoint, os.path.join(args.outdir, "best.wts"))
-                torch.save(checkpoint, os.path.join(args.outdir, f"best_ep{epoch+1}.wts"))
-            else:
-                patience_counter += 1
-                logger.info(f"No improvement. Patience {patience_counter}/{args.patience}")
 
             if (epoch + 1) % args.save_freq == 0:
                 torch.save(checkpoint, os.path.join(args.outdir, f"epoch_{epoch+1}.wts"))
-
-        # Broadcast patience counter so all ranks agree on early stopping
-        patience_counter = COMM.bcast(patience_counter if rank == 0 else None)
-
-        if patience_counter >= args.patience:
-            if rank == 0:
-                logger.info("Early stopping.")
-            break
 
     if rank == 0:
         logger.info(f"Training complete. Best val loss: {best_val_loss:.6f}")
