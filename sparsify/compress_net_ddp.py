@@ -236,6 +236,8 @@ def train(args, use_ddp=True):
         ckpt = torch.load(args.resume, map_location=dev, weights_only=True)
         get_inner_model().load_state_dict(ckpt['model_state_dict'])
         optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+        if main_scheduler is not None and 'scheduler_state_dict' in ckpt:
+            main_scheduler.load_state_dict(ckpt['scheduler_state_dict'])
         start_epoch = ckpt.get('epoch', 0) + 1
         best_val_loss = ckpt.get('loss', np.inf)
         if rank == 0:
@@ -336,6 +338,7 @@ def train(args, use_ddp=True):
             checkpoint = {
                 'model_state_dict': get_inner_model().state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': main_scheduler.state_dict() if main_scheduler is not None else None,
                 'epoch': epoch,
                 'loss': avg_test_loss,
                 'train_loss': avg_train_loss,
