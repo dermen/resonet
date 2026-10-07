@@ -8,11 +8,13 @@ import h5py
 
 class CompressDset(Dataset):
 
-    def __init__(self, h5name, maximgs=None):
+    def __init__(self, h5name, maximgs=None, return_meta=False, panels_per_shot=32):
         self.h5name = h5name
         self.h5 = None
         self.images = self.labels = None
         self.maximgs = maximgs
+        self.return_meta = return_meta
+        self.pps = panels_per_shot
 
     def _open(self):
         if self.h5 is None:
@@ -32,7 +34,53 @@ class CompressDset(Dataset):
         lab = torch.tensor(self.h5['peak_segments'][idx])
         img = img.float()
         lab = lab.float()
+        if self.return_meta:
+            shot_idx = idx // self.pps
+            panel_idx = idx % self.pps
+            return img, lab, shot_idx, panel_idx
         return img, lab
+
+
+class ShotGroupSampler(torch.utils.data.Sampler):
+    """Sampler that yields panel indices grouped by shot.
+
+    Ensures each batch contains complete shots (all panels_per_shot panels).
+    In DDP mode, partitions shots (not panels) across ranks.
+    """
+
+    def __init__(self, n_panels, panels_per_shot=32, rank=0, world_size=1,
+                 shuffle=True, seed=42):
+        self.pps = panels_per_shot
+        self.n_shots = n_panels // panels_per_shot
+        self.rank = rank
+        self.world_size = world_size
+        self.shuffle = shuffle
+        self.seed = seed
+        self.epoch = 0
+        self.shots_per_rank = self.n_shots // self.world_size
+
+    def __iter__(self):
+        g = torch.Generator()
+        g.manual_seed(self.seed + self.epoch)
+
+        if self.shuffle:
+            shot_order = torch.randperm(self.n_shots, generator=g).tolist()
+        else:
+            shot_order = list(range(self.n_shots))
+
+        my_start = self.rank * self.shots_per_rank
+        my_shots = shot_order[my_start:my_start + self.shots_per_rank]
+
+        for shot_internal_idx in my_shots:
+            base = shot_internal_idx * self.pps
+            for p in range(self.pps):
+                yield base + p
+
+    def __len__(self):
+        return self.shots_per_rank * self.pps
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
 
 
 class H5SimDataDset(Dataset):

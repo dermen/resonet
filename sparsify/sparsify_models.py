@@ -119,8 +119,20 @@ def load_model(model_file=None, map_location=None):
         model = FCN50()
     else:
         raise  NotImplementedError("Do not know how to load model %s" % model_name)
+    # Load state dict into the base Sequential model first, then wrap.
+    # This handles checkpoints from compress_net_ddp.py which saves the
+    # inner Sequential state_dict (via PaddedEfficientNet.model).
+    try:
+        model.load_state_dict(info["model_state_dict"])
+    except RuntimeError:
+        # Fallback: older checkpoints may have saved DownsampleWrapper state
+        downsample_factor = info.get("downsample_factor", None)
+        if downsample_factor is not None and downsample_factor > 1:
+            model = DownsampleWrapper(model, factor=downsample_factor)
+            model.load_state_dict(info["model_state_dict"])
+            return model
+        raise
     downsample_factor = info.get("downsample_factor", None)
     if downsample_factor is not None and downsample_factor > 1:
         model = DownsampleWrapper(model, factor=downsample_factor)
-    model.load_state_dict(info["model_state_dict"])
     return model
