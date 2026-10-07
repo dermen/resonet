@@ -16,7 +16,7 @@ class ImagePredictFabio(ImagePredict):
         super().__init__(*args, **kwargs)
 
     def load_image_from_file_or_array(self, detdist=None, pixsize=None, wavelen=None, image_file=None, raw_image=None,
-                                      beam_center=None, use_ice_mask=False):
+                                      beam_center=None, use_ice_mask=False, custom_mask=None):
         """
         :param detdist: sample-to-detector distance in mm
         :param pixsize: pixel size in mm
@@ -25,6 +25,7 @@ class ImagePredictFabio(ImagePredict):
         :param raw_image:  2D numpy array
         :param beam_center: 2-tuple representing direct beam coordinate on the image in pixel units (fast-scan coord, slow-scan coord)
         :param use_ice_mask: boolean, whether to apply the ice mask, requires all the geometry arguments detdist, pixsize, wavelen, and beam_center
+        :param custom_mask: optional 2D boolean array (True=valid pixel). Overrides the default bad-pixel mask.
         """
         if image_file is None:
             assert raw_image is not None, "Need a raw image or an image file!"
@@ -48,7 +49,9 @@ class ImagePredictFabio(ImagePredict):
             simple_geom = {"wavelength_Ang": wavelen, "distance_mm": detdist, "pixsize_mm": pixsize,
                            "beam_x": beam_x, "beam_y": beam_y, "fast_dim": fast_dim, "slow_dim": slow_dim}
             self.set_ice_mask(simple_geom=simple_geom)
-        self._set_pixel_tensor(raw_image)
+        else:
+            self.ice_mask = None
+        self._set_pixel_tensor(raw_image, custom_mask=custom_mask)
 
     @staticmethod
     def get_image_array(image_file):

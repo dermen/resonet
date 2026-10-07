@@ -121,13 +121,13 @@ class IceMasker:
         # TODO track if pixel size and xdim/ydim change because these change depending on the binning mode of the detector
         # check whether the Q of each pixel has changed. Assume detector model doesnt change between runs, so image dimensions and pixel size dont need to be checked
         if not np.allclose([distance, wavelength, beam_x, beam_y], [self.dist, self.wavelen, self.beam_x, self.beam_y]):
-            print("Recalculating mask because geom has changed!")
+            print("Recalculating mask because geom has changed!!!!")
             self.panel_dict["distance"] = distance
 
             fast_axis = np.array(self.panel_dict["fast_axis"])
             slow_axis = np.array(self.panel_dict["slow_axis"])
             pixsize = self.panel_dict["pixel_size"][0]
-            origin = - fast_axis*beam_x*pixsize - slow_axis*beam_y*pixsize - np.array([0,0,-distance])
+            origin = - fast_axis*beam_x*pixsize - slow_axis*beam_y*pixsize + np.array([0,0,-distance])
             self.panel_dict["origin"] = tuple(origin)
             # update the wavelength
             self.beam_dict["wavelength"] = wavelength
