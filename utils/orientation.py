@@ -8,7 +8,6 @@ try:
     from pytorch3d.transforms import matrix_to_quaternion
 except ImportError:
     pass
-
 dirname = os.path.join(os.path.dirname(__file__), "../sims/for_tutorial/diffraction_ai_sims_data")
 pdb_path = os.path.join(dirname, "pdbs")
 

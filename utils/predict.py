@@ -78,6 +78,7 @@ class ImagePredict:
 
         self._geom_props = ["detdist_mm", "pixsize_mm", "wavelen_Angstrom", "xdim", "ydim"]
         self.mask = None  # True if pixel is valid
+        self._default_mask = None  # True if pixel is valid, before ice mask is applied
         self.ice_mask = None  # True if pixel is not ice
 
         self.maxpool_1x1 = torch.nn.MaxPool2d(1, 1)
@@ -93,6 +94,7 @@ class ImagePredict:
         self.gain = 1  # adu per photon
         self.raw_image = None
         self.cache_raw_image = False
+        self.force_new_mask = False  # deprecated, kept for backward compat
 
     def _try_load_B_to_d(self, path):
         """path: saved MLP model for estimating reso from Bfactor"""
@@ -266,10 +268,10 @@ class ImagePredict:
 
         self.ice_mask = ~self.ice_masker.mask(**kwargs)[0]
 
-    def _set_pixel_tensor(self, raw_img):
+    def _set_pixel_tensor(self, raw_img, custom_mask=None):
         """pass in a raw image (2D array) and convert it to an torch tensor for prediction"""
         # check for mask and set a default if none found
-        self._set_default_mask(raw_img)
+        self._set_default_mask(raw_img, custom_mask=custom_mask)
 
         dwnsamp = self.ds_stride
         if dwnsamp is None:
@@ -302,14 +304,18 @@ class ImagePredict:
         if self.cache_raw_image:
             self.raw_image = raw_img
 
-    def _set_default_mask(self, raw_img):
-        if self.mask is None or raw_img.shape != self.mask.shape:
+    def _set_default_mask(self, raw_img, custom_mask=None):
+        if self._default_mask is None or self._default_mask.shape != raw_img.shape:
             mask = raw_img >= 0
             mask = ~binary_dilation(~mask, iterations=1)
-            self.mask = mask
+            self._default_mask = mask
+        if custom_mask is not None:
+            self.mask = custom_mask
+        else:
+            self.mask = self._default_mask
         if self.ice_mask is not None:
             assert raw_img.shape == self.ice_mask.shape
-            self.mask = np.logical_and(self.mask, self.ice_mask)
+            self.mask = np.logical_and(self._default_mask, self.ice_mask)
 
     def detect_resolution(self, use_min=True):
         """
@@ -357,7 +363,7 @@ class ImagePredict:
         """
         self._check_pixels()
         self._check_model("multi")
-        self.multi_model(self.pixels)
+        #self.multi_model(self.pixels)
         raw_prediction = self.multi_model(self.pixels)
         raw_prediction = torch.sigmoid(raw_prediction)
         raw_prediction = torch.mean(raw_prediction)
